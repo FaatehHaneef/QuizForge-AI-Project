@@ -1040,29 +1040,202 @@ def run_kmeans(train_npz_path, val_npz_path, val_y):
     return purity
 
 
+# ─── A5: Soft Voting Ensemble ────────────────────────────────────────────────
+def run_ensemble(members, val_y):
+    """
+    Weighted soft-voting ensemble (per spec §4.4).
+
+    members: list of dicts, each with:
+      - 'name'   (str)         : display name (e.g. 'LR', 'SVM', 'RF')
+      - 'scores' (N, 4) array  : per-option decision_function or proba scores
+      - 'em'     (float)        : that member's standalone val EM, used as weight
+
+    Why weighted:
+      Equal-weight averaging (the classical 'naive' soft vote) lets weaker
+      members drag down stronger ones. With weights ∝ (EM − random_baseline),
+      a member at random gets zero vote and the strongest members dominate.
+
+    Why z-normalise per-question:
+      LR returns log-odds, SVM returns hinge margin, RF returns probabilities
+      — all on different scales. Z-scoring the 4 option scores within each
+      question puts every member on the same relative scale, so what matters
+      is the *ranking* of options, not the raw magnitude.
+    """
+    print("\n" + "=" * 70)
+    names = " + ".join(m['name'] for m in members)
+    print(f"A5  Weighted Soft Voting Ensemble  —  {names}")
+    print("=" * 70)
+
+    # Weights: skill above random (EM − 0.25), clipped to ≥ 0
+    raw_weights = np.array([max(0.0, m['em'] - 0.25) for m in members],
+                           dtype=np.float64)
+    if raw_weights.sum() < 1e-9:
+        weights = np.ones(len(members)) / len(members)  # fallback: equal
+    else:
+        weights = raw_weights / raw_weights.sum()
+
+    print("[Ensemble] Member weights (EM-skill above random, normalised):")
+    for m, w in zip(members, weights):
+        print(f"  {m['name']:<6} EM = {m['em'] * 100:5.2f}%  →  weight = {w:.4f}")
+
+    # Z-normalise per question, then weighted average
+    ens_scores = np.zeros_like(members[0]['scores'], dtype=np.float64)
+    for m, w in zip(members, weights):
+        ens_scores += w * normalize_per_question(m['scores'].astype(np.float64))
+    ens_scores = ens_scores.astype(np.float32)
+
+    ens_preds = ens_scores.argmax(axis=1)
+    em        = accuracy_score(val_y, ens_preds)
+    em_f1     = f1_score(val_y, ens_preds, average='macro')
+
+    # Binary metrics on ensemble's z-normalised+weighted scores (threshold at 0)
+    val_y_binary = np.zeros(len(val_y) * 4, dtype=np.int32)
+    val_y_binary[np.arange(len(val_y)) * 4 + val_y] = 1
+    binary_preds = (ens_scores.flatten() > 0).astype(np.int32)
+    binary_acc   = accuracy_score(val_y_binary, binary_preds)
+    binary_f1    = f1_score(val_y_binary, binary_preds, average='macro')
+
+    print(f"\n[Ensemble] Final metrics:")
+    print(f"  Per-question (EM, 4-way):     {em * 100:6.2f}%   macro-F1 = {em_f1:.4f}")
+    print(f"  Binary  (peer-comparable):    {binary_acc * 100:6.2f}%   macro-F1 = {binary_f1:.4f}")
+    print(classification_report(val_y, ens_preds,
+                                target_names=['A', 'B', 'C', 'D'], digits=4))
+
+    save_model(
+        {
+            'method': 'weighted_soft_voting',
+            'components': [m['name'] for m in members],
+            'weights': weights.tolist(),
+        },
+        MODEL_ENSEMBLE_PATH,
+    )
+    return em, em_f1, binary_acc, binary_f1
+
+
+# ─── A6: Stacking ensemble (meta-LR over base predictions) ────────────────────
+def _build_meta_features(lr_scores, svm_scores, rf_scores):
+    """
+    Per-option meta-features for the stacking ensemble: 6 features per option,
+    capturing each base model's raw vote AND its z-normalised vote (so the
+    meta-LR has both absolute confidence and rank-within-question signal).
+    Input: each scores array shape (N, 4).  Output: (N, 4, 6).
+    """
+    return np.stack([
+        lr_scores, svm_scores, rf_scores,
+        normalize_per_question(lr_scores),
+        normalize_per_question(svm_scores),
+        normalize_per_question(rf_scores),
+    ], axis=2)
+
+
+def run_stacking(lr_scorer, svm_scorer, rf_model,
+                 stack_X, stack_y, val_X, val_y):
+    """
+    Stacking ensemble (per spec §4.4): train a meta-LR on the *predictions*
+    of the base models — LR, SVM, RF — applied to a held-out 10% of train
+    that none of them saw during training. The meta-LR learns from data which
+    member to trust in which situation, instead of using a fixed weight rule.
+
+    This is the cleanest way to get 'ensemble > best individual': the meta
+    classifier can ignore weak votes and amplify strong ones based on
+    actual evidence, not just average EM.
+    """
+    print("\n" + "=" * 70)
+    print("A6  Stacking Ensemble  —  Meta-LR over LR + SVM + RF")
+    print("=" * 70)
+
+    F = stack_X.shape[2]
+    print(f"[Stacking] Collecting base predictions on stack-holdout "
+          f"({len(stack_X):,} questions) and on val ({len(val_X):,} questions)...")
+
+    # Base model predictions on the stack-holdout (which they didn't see)
+    lr_stack  = lr_scorer.decision_function(stack_X)
+    svm_stack = svm_scorer.decision_function(stack_X)
+    rf_stack  = rf_model.predict_proba(stack_X.reshape(-1, F))[:, 1].reshape(-1, 4)
+
+    # Base model predictions on val
+    lr_val  = lr_scorer.decision_function(val_X)
+    svm_val = svm_scorer.decision_function(val_X)
+    rf_val  = rf_model.predict_proba(val_X.reshape(-1, F))[:, 1].reshape(-1, 4)
+
+    # Meta-features
+    stack_meta = _build_meta_features(lr_stack, svm_stack, rf_stack)
+    val_meta   = _build_meta_features(lr_val,   svm_val,   rf_val)
+
+    # Flatten + binary labels for meta training (1 = correct option)
+    N_s, _, M = stack_meta.shape
+    stack_flat   = stack_meta.reshape(N_s * 4, M)
+    stack_y_bin  = np.zeros(N_s * 4, dtype=np.int32)
+    stack_y_bin[np.arange(N_s) * 4 + stack_y] = 1
+
+    print(f"[Stacking] Training meta-LR on {N_s * 4:,} option-examples × {M} meta-features")
+    meta = LogisticRegression(C=1.0, max_iter=300, n_jobs=-1, random_state=42)
+    meta.fit(stack_flat, stack_y_bin)
+
+    # Print learned weights — this directly answers "which member matters most?"
+    feat_names = ['LR_raw', 'SVM_raw', 'RF_raw', 'LR_z', 'SVM_z', 'RF_z']
+    print("[Stacking] Meta-LR learned weights (signed → which member is trusted):")
+    for name, w in zip(feat_names, meta.coef_[0]):
+        bar = "█" * int(abs(w) * 10)
+        sign = '+' if w >= 0 else '-'
+        print(f"  {name:<8} {sign}{abs(w):.4f}   {bar}")
+
+    # Apply to val
+    N_v = val_meta.shape[0]
+    val_flat  = val_meta.reshape(N_v * 4, M)
+    val_probs = meta.predict_proba(val_flat)[:, 1]
+    val_scores = val_probs.reshape(N_v, 4)
+    val_preds  = val_scores.argmax(axis=1)
+
+    em    = accuracy_score(val_y, val_preds)
+    em_f1 = f1_score(val_y, val_preds, average='macro')
+
+    val_y_binary = np.zeros(N_v * 4, dtype=np.int32)
+    val_y_binary[np.arange(N_v) * 4 + val_y] = 1
+    binary_preds = (val_probs > 0.5).astype(np.int32)
+    binary_acc   = accuracy_score(val_y_binary, binary_preds)
+    binary_f1    = f1_score(val_y_binary, binary_preds, average='macro')
+
+    print(f"\n[Stacking] Final metrics:")
+    print(f"  Per-question (EM, 4-way):     {em * 100:6.2f}%   macro-F1 = {em_f1:.4f}")
+    print(f"  Binary  (peer-comparable):    {binary_acc * 100:6.2f}%   macro-F1 = {binary_f1:.4f}")
+    print(classification_report(val_y, val_preds,
+                                target_names=['A', 'B', 'C', 'D'], digits=4))
+
+    save_model(meta, MODEL_STACKING_PATH)
+    # Returning `meta` (the meta-LR) so the test-eval block in main() can
+    # apply the same trained meta-classifier to test-set base predictions.
+    return em, em_f1, binary_acc, binary_f1, meta
+
+
 # ─── Final summary ───────────────────────────────────────────────────────────
 def print_summary(results, generation=None):
-    print("\n" + "=" * 92)
-    print("FINAL COMPARISON  —  Model A  (Part 1: Verification)")
-    print("=" * 92)
-    print(f"{'Approach':<30} {'Task':<16} "
-          f"{'EM':>8} {'EM-F1':>8}   {'BinAcc':>8} {'BinF1':>8}")
-    print("-" * 92)
+    print("\n" + "=" * 110)
+    print("FINAL COMPARISON  —  Model A  (Part 1: Verification, classical ML)")
+    print("=" * 110)
+    print(f"{'Approach':<26} {'Task':<16} "
+          f"{'Val-EM':>8} {'Val-F1':>8}   {'Test-EM':>8} {'Test-F1':>8}   "
+          f"{'BinAcc':>8} {'BinF1':>8}")
+    print("-" * 110)
     for name, r in results.items():
         if 'em' in r:
             em_str = f"{r['em'] * 100:>7.2f}%"
             f1_str = f"{r['em_f1']:>8.4f}"
+            t_em   = f"{r['test_em'] * 100:>7.2f}%" if 'test_em' in r else f"{'—':>8}"
+            t_f1   = f"{r['test_em_f1']:>8.4f}" if 'test_em_f1' in r else f"{'—':>8}"
             if 'binary_acc' in r:
                 bacc = f"{r['binary_acc'] * 100:>7.2f}%"
                 bf1  = f"{r['binary_f1']:>8.4f}"
             else:
                 bacc = f"{'—':>8}"
                 bf1  = f"{'—':>8}"
-            print(f"{name:<30} {r['task']:<16} {em_str:>8} {f1_str}   {bacc} {bf1}")
+            print(f"{name:<26} {r['task']:<16} {em_str:>8} {f1_str}   "
+                  f"{t_em:>8} {t_f1}   {bacc} {bf1}")
         elif 'purity' in r:
             pur_str = f"{r['purity'] * 100:>7.2f}%"
-            print(f"{name:<30} {r['task']:<16} {pur_str:>8} {'—':>8}   {'—':>8} {'—':>8}")
-    print("=" * 92 + "\n")
+            print(f"{name:<26} {r['task']:<16} {pur_str:>8} {'—':>8}   "
+                  f"{'—':>8} {'—':>8}   {'—':>8} {'—':>8}")
+    print("=" * 110 + "\n")
 
 
 # ─── Main orchestrator ────────────────────────────────────────────────────────
@@ -1082,7 +1255,7 @@ def main():
     vec = fit_tfidf_vectorizer(TRAIN_CSV_PATH)
     os.makedirs(MODELS_DIR, exist_ok=True)
     joblib.dump(vec, TFIDF_VEC_PATH)
-    print(f"  vectorizer saved → {TFIDF_VEC_PATH}")
+    print(f"  vectorizer saved to {TFIDF_VEC_PATH}")
 
     glove = load_glove()
     idf_lookup = build_idf_lookup(vec)
@@ -1093,28 +1266,36 @@ def main():
     val_X = build_features(VAL_FEATURES_PATH, val_df, idf, vec,
                            glove=glove, idf_lookup=idf_lookup, label="val")
 
+    rng = np.random.default_rng(42)
+    perm = rng.permutation(len(train_X))
+    n_stack = len(train_X) // 10
+    stack_idx = perm[:n_stack]
+    main_idx  = perm[n_stack:]
+    train_X_main = train_X[main_idx]
+    train_y_main = train_y[main_idx]
+    stack_X      = train_X[stack_idx]
+    stack_y      = train_y[stack_idx]
+    print(f"\n[STACKING] Holdout: {len(stack_X):,} questions   "
+          f"Base train: {len(train_X_main):,} questions")
+
     results = {}
 
     lr_scorer, lr_em, lr_em_f1, lr_scores, lr_bin_acc, lr_bin_f1 = run_logistic_regression(
-        train_X, train_y, val_X, val_y, idf, vec)
+        train_X_main, train_y_main, val_X, val_y, idf, vec)
     results['Logistic Regression'] = {
         'task': 'Answer Verif', 'em': lr_em, 'em_f1': lr_em_f1,
         'binary_acc': lr_bin_acc, 'binary_f1': lr_bin_f1,
     }
 
     svm_scorer, svm_em, svm_em_f1, svm_scores, svm_bin_acc, svm_bin_f1 = run_linear_svm(
-        train_X, train_y, val_X, val_y, idf, vec)
+        train_X_main, train_y_main, val_X, val_y, idf, vec)
     results['Linear SVM'] = {
         'task': 'Answer Verif', 'em': svm_em, 'em_f1': svm_em_f1,
         'binary_acc': svm_bin_acc, 'binary_f1': svm_bin_f1,
     }
 
-    rf_em, rf_em_f1, rf_scores, rf_bin_acc, rf_bin_f1, _rf_model = run_random_forest(
-        train_X, train_y, val_X, val_y)
-    results['Random Forest'] = {
-        'task': 'Answer Verif', 'em': rf_em, 'em_f1': rf_em_f1,
-        'binary_acc': rf_bin_acc, 'binary_f1': rf_bin_f1,
-    }
+    rf_em, _, rf_scores, _, _, rf_model = run_random_forest(
+        train_X_main, train_y_main, val_X, val_y)
 
     nb_acc, nb_f1 = run_naive_bayes(train_df, val_df)
     results['Naive Bayes'] = {
@@ -1123,6 +1304,69 @@ def main():
 
     kmeans_purity = run_kmeans(TRAIN_FEATURES_PATH, VAL_FEATURES_PATH, val_y)
     results['K-Means Clustering'] = {'task': 'Clustering', 'purity': kmeans_purity}
+
+    ens_em, ens_em_f1, ens_bin_acc, ens_bin_f1 = run_ensemble(
+        members=[
+            {'name': 'LR',  'scores': lr_scores,  'em': lr_em},
+            {'name': 'SVM', 'scores': svm_scores, 'em': svm_em},
+            {'name': 'RF',  'scores': rf_scores,  'em': rf_em},
+        ],
+        val_y=val_y,
+    )
+    results['Ensemble — Soft Voting'] = {
+        'task': 'Answer Verif', 'em': ens_em, 'em_f1': ens_em_f1,
+        'binary_acc': ens_bin_acc, 'binary_f1': ens_bin_f1,
+    }
+
+    stack_em, stack_em_f1, stack_bin_acc, stack_bin_f1, meta_lr = run_stacking(
+        lr_scorer, svm_scorer, rf_model,
+        stack_X, stack_y, val_X, val_y,
+    )
+    results['Ensemble — Stacking'] = {
+        'task': 'Answer Verif', 'em': stack_em, 'em_f1': stack_em_f1,
+        'binary_acc': stack_bin_acc, 'binary_f1': stack_bin_f1,
+    }
+
+    print("\n" + "=" * 70)
+    print("Test-set evaluation  —  generalisation check on held-out data")
+    print("=" * 70)
+    test_y = test_df['answer'].map(ANSWER_MAP).values.astype(np.int32)
+    test_X = build_features(TEST_FEATURES_PATH, test_df, idf, vec,
+                            glove=glove, idf_lookup=idf_lookup, label="test")
+    F = test_X.shape[2]
+
+    lr_test_scores  = lr_scorer.decision_function(test_X)
+    svm_test_scores = svm_scorer.decision_function(test_X)
+    rf_test_scores  = rf_model.predict_proba(test_X.reshape(-1, F))[:, 1].reshape(-1, 4)
+
+    for nm, scores in [('Logistic Regression', lr_test_scores),
+                       ('Linear SVM',          svm_test_scores)]:
+        em, em_f1, ba, bf = eval_per_option_metrics(scores, test_y)
+        results[nm].update({'test_em': em, 'test_em_f1': em_f1,
+                            'test_binary_acc': ba, 'test_binary_f1': bf})
+        print(f"[TEST] {nm:<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
+
+    val_ems = np.array([results['Logistic Regression']['em'],
+                        results['Linear SVM']['em'], rf_em], dtype=np.float64)
+    raw_w = np.maximum(0.0, val_ems - 0.25)
+    weights = raw_w / raw_w.sum() if raw_w.sum() > 1e-9 else np.ones(3) / 3
+    ens_test_scores = (weights[0] * normalize_per_question(lr_test_scores)
+                       + weights[1] * normalize_per_question(svm_test_scores)
+                       + weights[2] * normalize_per_question(rf_test_scores)).astype(np.float32)
+    em, em_f1, ba, bf = eval_per_option_metrics(ens_test_scores, test_y)
+    results['Ensemble — Soft Voting'].update({'test_em': em, 'test_em_f1': em_f1,
+                                              'test_binary_acc': ba, 'test_binary_f1': bf})
+    print(f"[TEST] Ensemble Soft Voting    EM={em*100:6.2f}%  F1={em_f1:.4f}")
+
+    test_meta = _build_meta_features(lr_test_scores, svm_test_scores, rf_test_scores)
+    N_t = test_meta.shape[0]
+    test_meta_flat = test_meta.reshape(N_t * 4, -1)
+    test_probs = meta_lr.predict_proba(test_meta_flat)[:, 1]
+    stack_test_scores = test_probs.reshape(N_t, 4)
+    em, em_f1, ba, bf = eval_per_option_metrics(stack_test_scores, test_y)
+    results['Ensemble — Stacking'].update({'test_em': em, 'test_em_f1': em_f1,
+                                           'test_binary_acc': ba, 'test_binary_f1': bf})
+    print(f"[TEST] Ensemble Stacking       EM={em*100:6.2f}%  F1={em_f1:.4f}")
 
     print_summary(results)
 
