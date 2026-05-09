@@ -701,13 +701,44 @@ def _derive_gold_key_sentence(passage, correct_answer):
 LIKERT_BUCKETS = ['1-Implausible', '2-Weak', '3-OK', '4-Good', '5-Excellent']
 
 
+def _sanitize_cell(s):
+    """Collapse embedded newlines / repeated whitespace so each rater row stays on
+    one line in the CSV (prevents Excel/text-editor breakage)."""
+    s = str(s).replace('\r', ' ').replace('\n', ' ')
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
+def _likert_csv_has_ratings(path):
+    """True iff the existing Likert CSV has at least one rater score filled in."""
+    if not os.path.exists(path):
+        return False
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return False
+    for col in ('rater_score_generated_1to5', 'rater_score_gold_1to5'):
+        if col not in df.columns:
+            return False
+        if df[col].notna().any() and (df[col].astype(str).str.strip() != '').any():
+            return True
+    return False
+
+
 def write_likert_template(distractor_examples, out_path=LIKERT_TEMPLATE_PATH):
     """
     Spec §5.5 — Confusion Matrix from human evaluation (1–5 Likert).
     We can't run the human study from code, so we emit a CSV template a
     rater can fill in. Each row pairs a generated distractor with its
     closest gold distractor; the rater scores each on the 1–5 scale.
+
+    If the file already has rater scores, we skip writing — overwriting
+    would wipe the human's work. Delete the file manually to regenerate.
     """
+    if _likert_csv_has_ratings(out_path):
+        print(f"  [LIKERT] Existing ratings detected at {out_path} — skipping rewrite "
+              "(delete the file to regenerate template).")
+        return out_path
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     rows = []
     for ex in distractor_examples:
@@ -718,14 +749,15 @@ def write_likert_template(distractor_examples, out_path=LIKERT_TEMPLATE_PATH):
             best_idx = int(np.argmax(r1)) if r1 else -1
             best_gold = gold[best_idx] if best_idx >= 0 else ''
             rows.append({
-                'correct_answer': ex.get('correct', ''),
-                'generated_distractor': g,
-                'matched_gold_distractor': best_gold,
+                'correct_answer': _sanitize_cell(ex.get('correct', '')),
+                'generated_distractor': _sanitize_cell(g),
+                'matched_gold_distractor': _sanitize_cell(best_gold),
                 'rater_score_generated_1to5': '',
                 'rater_score_gold_1to5': '',
             })
     df = pd.DataFrame(rows)
-    df.to_csv(out_path, index=False, encoding='utf-8')
+    df.to_csv(out_path, index=False, encoding='utf-8',
+              quoting=1)  # csv.QUOTE_ALL — every field quoted, no row splitting
     print(f"  [LIKERT] Wrote {len(df)} rater rows to {out_path}")
     return out_path
 
