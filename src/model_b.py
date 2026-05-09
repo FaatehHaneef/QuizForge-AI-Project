@@ -58,7 +58,11 @@ import numpy as np
 import pandas as pd
 
 from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    RandomForestRegressor,
+    HistGradientBoostingClassifier,
+)
 from sklearn.metrics import r2_score, confusion_matrix
 from rouge_score import rouge_scorer
 
@@ -90,6 +94,7 @@ from model_a import (
 # ─── Constants ───────────────────────────────────────────────────────────────
 MODEL_B_DIST_LR_PATH = os.path.join(MODELS_DIR, "model_b_distractor_lr.pkl")
 MODEL_B_DIST_RF_PATH = os.path.join(MODELS_DIR, "model_b_distractor_rf.pkl")
+MODEL_B_DIST_HGB_PATH = os.path.join(MODELS_DIR, "model_b_distractor_hgb.pkl")
 MODEL_B_HINT_PATH    = os.path.join(MODELS_DIR, "model_b_hint_lr.pkl")
 MODEL_B_HINT_REG_PATH = os.path.join(MODELS_DIR, "model_b_hint_regressor.pkl")
 LIKERT_TEMPLATE_PATH  = os.path.join(MODELS_DIR, "model_b_distractor_likert_template.csv")
@@ -97,8 +102,10 @@ LIKERT_TEMPLATE_PATH  = os.path.join(MODELS_DIR, "model_b_distractor_likert_temp
 EPS                       = 1e-9
 TRAIN_SAMPLE_SIZE         = 12_000   # rows used for ranker training
 EVAL_SAMPLE_SIZE          = 3_000    # rows used for evaluation (val / test)
-MAX_CANDIDATES            = 20       # candidate phrases per passage
+MAX_CANDIDATES            = 30       # candidate phrases per passage
 DISTRACTOR_MATCH_THRESH   = 0.3      # ROUGE 1 above this counts as a match
+LENGTH_RATIO_MIN          = 0.4      # gen-time filter: candidate / answer token ratio
+LENGTH_RATIO_MAX          = 2.5      # gen-time filter: candidate / answer token ratio
 TOK_RE                    = re.compile(r'\b[a-zA-Z]+\b')
 
 # Lightweight ROUGE scorer used purely for greedy gen->gold matching during
@@ -326,6 +333,13 @@ def train_distractor_rankers(train_df, vec, glove, idf_lookup):
     save_model(rf, MODEL_B_DIST_RF_PATH)
     rankers['RF'] = rf
 
+    print("[B2-RANKER] Training Histogram Gradient Boosting...")
+    hgb = HistGradientBoostingClassifier(
+        max_iter=300, max_depth=6, learning_rate=0.1, random_state=42,
+    ).fit(X, y)
+    save_model(hgb, MODEL_B_DIST_HGB_PATH)
+    rankers['HGB'] = hgb
+
     return rankers
 
 
@@ -339,12 +353,27 @@ def _word_jaccard(a, b):
 
 def generate_distractors(passage, correct_answer, ranker,
                          vec, glove, idf_lookup, top_k=3, diversity_thresh=0.7):
-    """Score all candidates in one batch, top-K with Jaccard diversity filter."""
+    """
+    Score all candidates in one batch, top-K with Jaccard diversity filter.
+    Applies a length-ratio filter at gen time (kept off training to preserve
+    the length-mismatch negative signal for the ranker).
+    """
     cands = extract_candidate_phrases(passage)
     correct_lower = correct_answer.lower().strip()
     cands = [c for c in cands if c.lower().strip() != correct_lower]
     if not cands:
         return []
+
+    # Length-ratio filter: keep only candidates whose token length is in
+    # [0.4×, 2.5×] of the answer. Falls back to unfiltered set if nothing
+    # passes (so we never return empty when there are usable candidates).
+    la = max(1, len(correct_answer.split()))
+    filtered = [
+        c for c in cands
+        if LENGTH_RATIO_MIN <= max(1, len(c.split())) / la <= LENGTH_RATIO_MAX
+    ]
+    if filtered:
+        cands = filtered
 
     feats = batch_distractor_features(
         cands, correct_answer, passage, vec, glove, idf_lookup,
@@ -625,8 +654,10 @@ def train_hint_regressor(train_df, vec, glove, idf_lookup):
           f"(up to {TRAIN_SAMPLE_SIZE:,} rows, continuous relevance target)...")
     X, y = build_hint_regression_data(train_df, vec, glove, idf_lookup)
     print(f"  Examples: {len(X):,}   y range: [{y.min():.3f}, {y.max():.3f}]   y mean: {y.mean():.3f}")
-    print("[B5b-REG] Training Linear Regression...")
-    reg = LinearRegression(n_jobs=-1).fit(X, y)
+    print("[B5b-REG] Training Random Forest Regressor (200 trees, max_depth=12)...")
+    reg = RandomForestRegressor(
+        n_estimators=200, max_depth=12, n_jobs=-1, random_state=42,
+    ).fit(X, y)
     save_model(reg, MODEL_B_HINT_REG_PATH)
     return reg
 
