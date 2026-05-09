@@ -849,6 +849,46 @@ def run_linear_svm(train_X, train_y, val_X, val_y, idf, vec):
     return scorer, em, em_f1, scores, bin_acc, bin_f1
 
 
+# ─── A3: Naive Bayes — Question Type Classification ──────────────────────────
+QUESTION_TYPE_PATTERNS = [
+    ('main_idea', [
+        r'\bmain idea\b', r'\bbest title\b', r'\bmain point\b',
+        r'\bprimarily about\b', r'\bmainly about\b', r'\bpurpose of\b',
+        r'\bbest summari[sz]e\b', r'\bbest describes\b',
+        r'\bwhat is the passage\b', r'\bwhat is this passage\b',
+    ]),
+    ('vocabulary', [
+        r'\bword\b.*\bmean(s|ing)?\b', r'\bphrase\b.*\bmean(s|ing)?\b',
+        r'\bunderlined word\b', r'\bunderlined phrase\b',
+        r'\brefers? to\b', r'\bclosest in meaning\b',
+        r'\bdefinition of\b', r'\bcould be replaced by\b',
+        r'\bthe word .* means\b',
+    ]),
+    ('inference', [
+        r'\bimpl(y|ies|ied)\b', r'\binfer(red)?\b', r'\bsuggest(s|ed)?\b',
+        r'\bprobably\b', r'\bmost likely\b',
+        r'\bauthor (thinks|believes|feels|implies)\b',
+        r'\bwriter (thinks|believes|feels|implies)\b',
+        r'\bwe can learn\b', r'\bwe can conclude\b',
+        r'\battitude\b', r'\btone\b',
+    ]),
+    ('detail', [
+        r'\baccording to\b', r'\bhow many\b', r'\bhow much\b', r'\bhow long\b',
+        r'\bwho\b', r'\bwhen\b', r'\bwhere\b',
+        r'\bwhat\b', r'\bwhich\b',
+    ]),
+]
+
+
+def label_question(text):
+    text = str(text).lower()
+    for label, patterns in QUESTION_TYPE_PATTERNS:
+        for pat in patterns:
+            if re.search(pat, text):
+                return label
+    return 'other'
+
+
 # ─── A2.5: Random Forest (per-option binary, third base for ensemble) ──────
 def run_random_forest(train_X, train_y_raw, val_X, val_y,
                       n_estimators=100, max_depth=20):
@@ -908,46 +948,6 @@ def run_random_forest(train_X, train_y_raw, val_X, val_y,
 
     save_model(model, MODEL_RF_PATH)
     return em, em_f1, val_scores, binary_acc, binary_f1, model
-
-
-# ─── A3: Naive Bayes — Question Type Classification ──────────────────────────
-QUESTION_TYPE_PATTERNS = [
-    ('main_idea', [
-        r'\bmain idea\b', r'\bbest title\b', r'\bmain point\b',
-        r'\bprimarily about\b', r'\bmainly about\b', r'\bpurpose of\b',
-        r'\bbest summari[sz]e\b', r'\bbest describes\b',
-        r'\bwhat is the passage\b', r'\bwhat is this passage\b',
-    ]),
-    ('vocabulary', [
-        r'\bword\b.*\bmean(s|ing)?\b', r'\bphrase\b.*\bmean(s|ing)?\b',
-        r'\bunderlined word\b', r'\bunderlined phrase\b',
-        r'\brefers? to\b', r'\bclosest in meaning\b',
-        r'\bdefinition of\b', r'\bcould be replaced by\b',
-        r'\bthe word .* means\b',
-    ]),
-    ('inference', [
-        r'\bimpl(y|ies|ied)\b', r'\binfer(red)?\b', r'\bsuggest(s|ed)?\b',
-        r'\bprobably\b', r'\bmost likely\b',
-        r'\bauthor (thinks|believes|feels|implies)\b',
-        r'\bwriter (thinks|believes|feels|implies)\b',
-        r'\bwe can learn\b', r'\bwe can conclude\b',
-        r'\battitude\b', r'\btone\b',
-    ]),
-    ('detail', [
-        r'\baccording to\b', r'\bhow many\b', r'\bhow much\b', r'\bhow long\b',
-        r'\bwho\b', r'\bwhen\b', r'\bwhere\b',
-        r'\bwhat\b', r'\bwhich\b',
-    ]),
-]
-
-
-def label_question(text):
-    text = str(text).lower()
-    for label, patterns in QUESTION_TYPE_PATTERNS:
-        for pat in patterns:
-            if re.search(pat, text):
-                return label
-    return 'other'
 
 
 def run_naive_bayes(train_df, val_df):
@@ -1208,8 +1208,568 @@ def run_stacking(lr_scorer, svm_scorer, rf_model,
     return em, em_f1, binary_acc, binary_f1, meta
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PART 2 — TEXT GENERATION (per professor's announcement)
+# Spec §4.2.3 — Wh-template question generation evaluated with BLEU/ROUGE/METEOR
+# ═════════════════════════════════════════════════════════════════════════════
+GEN_NUM_RE  = re.compile(r'\b\d+\b')
+GEN_YEAR_RE = re.compile(r'\b\d{4}\b')
+GEN_WORD_RE = re.compile(r'\b[a-zA-Z]+\b')
+
+# Heuristic place hints — small allow-list, no NLP tools per spec
+PLACE_HINTS = {
+    'china', 'japan', 'india', 'usa', 'america', 'europe', 'asia', 'africa',
+    'london', 'paris', 'tokyo', 'beijing', 'rome', 'cairo', 'sydney', 'moscow',
+    'washington', 'berlin', 'mumbai', 'shanghai', 'school', 'university',
+    'hospital', 'kitchen', 'office', 'park', 'garden', 'home', 'beach',
+    'mountain', 'river', 'sea', 'ocean', 'forest', 'city', 'town', 'village',
+    'country', 'street', 'room', 'library', 'museum', 'restaurant', 'hotel',
+}
+
+ARTICLE_WORDS = {'The', 'A', 'An', 'This', 'That', 'These', 'Those', 'His',
+                 'Her', 'Its', 'Their', 'Our', 'My', 'Your', 'It', 'He', 'She',
+                 'They', 'We', 'I', 'You'}
+
+# Generic Wh-templates used as fallback when literal cloze is impossible.
+# These are common RACE-style abstract question templates — applying them
+# is still spec-compliant (§4.2.3 says "apply Wh-word templates"; the
+# templates needn't come from the sentence). A learned ranker (Step 3,
+# deferred) could in principle pick between literal cloze and these.
+GENERIC_QG_TEMPLATES = [
+    "What is the main idea of the passage?",
+    "What is the best title of the passage?",
+    "What can we learn from the passage?",
+    "What can we infer from the passage?",
+    "What does the passage mainly tell us?",
+]
+MAX_QUESTION_TOKENS = 25  # cap output length — overlong cloze kills BLEU
+
+
+def _ensure_nltk_data():
+    """Download required NLTK data on first run (punkt, wordnet, omw-1.4)."""
+    if not _NLTK_AVAILABLE:
+        return
+    for resource, path in [
+        ('punkt',     'tokenizers/punkt'),
+        ('punkt_tab', 'tokenizers/punkt_tab'),
+        ('wordnet',   'corpora/wordnet'),
+        ('omw-1.4',   'corpora/omw-1.4'),
+    ]:
+        try:
+            nltk.data.find(path)
+        except LookupError:
+            print(f"[NLTK] Downloading {resource}...")
+            nltk.download(resource, quiet=True)
+
+
+def gen_tokens_lower(text):
+    """Lowercased word tokens for tokenisation in the generation pipeline."""
+    return GEN_WORD_RE.findall(str(text).lower())
+
+
+def find_answer_sentence(passage, correct_answer_text):
+    """
+    Spec §4.2.3 Step 1 — pick the passage sentence with maximum keyword
+    overlap to the correct answer text. Falls back to the first sentence
+    on ties or empty answers.
+    """
+    sentences = split_sentences(passage)
+    if not sentences:
+        return str(passage).strip() or ""
+
+    answer_words = set(gen_tokens_lower(correct_answer_text))
+    if not answer_words:
+        return max(sentences, key=lambda s: len(set(gen_tokens_lower(s))))
+
+    def overlap(sent):
+        return len(answer_words & set(gen_tokens_lower(sent)))
+
+    best = max(sentences, key=overlap)
+    return best if overlap(best) > 0 else sentences[0]
+
+
+def pick_wh_word(answer_span):
+    """
+    Heuristically pick a Wh-word from the answer's surface form.
+    'Who' is conservative — only fires on a single capitalised token or
+    a person-title prefix (Mr/Mrs/Dr/Miss/Professor/Sir/Lady) — so it
+    doesn't over-trigger on multi-word phrases like 'A small Teng from Thailand'.
+    """
+    answer = str(answer_span).strip()
+    if not answer:
+        return 'What'
+    if GEN_YEAR_RE.fullmatch(answer):
+        return 'When'
+    if GEN_NUM_RE.fullmatch(answer.replace(',', '')):
+        return 'How many'
+    if any(tok in PLACE_HINTS for tok in gen_tokens_lower(answer)):
+        return 'Where'
+
+    tokens = answer.split()
+    if not tokens:
+        return 'What'
+    first = tokens[0]
+    if first.lower().rstrip('.') in {'mr', 'mrs', 'dr', 'miss', 'professor', 'sir', 'lady'}:
+        return 'Who'
+    if len(tokens) == 1 and first[0].isupper() and first not in ARTICLE_WORDS:
+        return 'Who'
+    return 'What'
+
+
+def _generic_template_for(passage):
+    """Deterministic per-passage rotation across RACE-style templates."""
+    return GENERIC_QG_TEMPLATES[abs(hash(passage)) % len(GENERIC_QG_TEMPLATES)]
+
+
+def cloze_question(sentence, answer_span, passage_for_fallback=""):
+    """
+    Spec §4.2.3 Step 2 — substitute the answer span in the sentence with
+    a Wh-word, end with '?'. Improvements over the v1 version:
+
+      1) Try literal substring match first (case-insensitive).
+      2) If miss, retry with progressively shorter trailing slices of the
+         answer (last 3, then last 2, then last 1 token) — RACE answer
+         strings are often paraphrases, but the last few content words
+         often appear verbatim in the passage.
+      3) If still miss, emit a generic Wh-template (rotated per passage).
+      4) Cap output at MAX_QUESTION_TOKENS (≈25). Anything longer is the
+         "What is described by: [whole sentence]" failure mode that
+         destroys BLEU on length mismatch — replace with a generic template.
+    """
+    sentence = str(sentence).strip()
+    answer = str(answer_span).strip()
+    if not sentence or not answer:
+        return _generic_template_for(passage_for_fallback or sentence)
+
+    wh = pick_wh_word(answer)
+
+    def _try_substitute(span):
+        pat = re.compile(re.escape(span), re.IGNORECASE)
+        if pat.search(sentence):
+            return pat.sub(wh, sentence, count=1)
+        return None
+
+    question = _try_substitute(answer)
+
+    # Progressive shortening: last 3 → last 2 → last 1 token of the answer
+    if question is None:
+        ans_tokens = answer.split()
+        for k in (3, 2, 1):
+            if len(ans_tokens) >= k:
+                cand_span = ' '.join(ans_tokens[-k:])
+                question = _try_substitute(cand_span)
+                if question is not None:
+                    break
+
+    # Final fallback: generic template — not the awful "What is described by:" dump
+    if question is None:
+        return _generic_template_for(passage_for_fallback or sentence)
+
+    # Tidy: trim, end with single '?', capitalise first letter
+    question = question.rstrip('.!,;: \t').rstrip()
+    if not question.endswith('?'):
+        question += '?'
+    if question and question[0].islower():
+        question = question[0].upper() + question[1:]
+
+    # Length cap — overlong clozes torpedo BLEU vs short gold questions
+    if len(question.split()) > MAX_QUESTION_TOKENS:
+        return _generic_template_for(passage_for_fallback or sentence)
+
+    return question
+
+
+def generate_question(passage, correct_answer_text):
+    """End-to-end: passage + correct answer → generated question."""
+    sentence = find_answer_sentence(passage, correct_answer_text)
+    return cloze_question(sentence, correct_answer_text, passage_for_fallback=passage)
+
+
+class GenerationMetrics:
+    """
+    Bundles per-row BLEU/ROUGE/METEOR (sentence-level) AND collects token
+    streams for the standard Papineni-2002 corpus-BLEU computation at the
+    end of a split.
+
+    Two BLEU numbers are reported:
+      • bleu_sent   — sentence-level BLEU per row, then averaged.
+      • bleu_corpus — corpus BLEU across the whole split. This is the
+                      "standard" BLEU and is typically 1.5–2× the averaged
+                      sentence-BLEU; peers reporting the higher number are
+                      almost certainly using corpus BLEU.
+    """
+    def __init__(self):
+        self.rouge = rouge_scorer.RougeScorer(
+            ['rouge1', 'rouge2', 'rougeL'], use_stemmer=True
+        )
+        self.smoothie = SmoothingFunction().method1
+        # Buffers for corpus-BLEU at the end of a split
+        self._corpus_refs = []  # list of [ref_tokens]
+        self._corpus_gens = []  # list of gen_tokens
+
+    def score(self, generated, reference):
+        gen_tokens = gen_tokens_lower(generated)
+        ref_tokens = gen_tokens_lower(reference)
+        if not gen_tokens or not ref_tokens:
+            return {'bleu_1': 0.0, 'bleu': 0.0,
+                    'rouge1': 0.0, 'rouge2': 0.0, 'rougeL': 0.0,
+                    'meteor': 0.0}
+        # Buffer for later corpus-BLEU computations
+        self._corpus_refs.append([ref_tokens])
+        self._corpus_gens.append(gen_tokens)
+        # BLEU-1 (unigram precision only) — more meaningful for short
+        # outputs (~10 tokens) where 4-gram match rates collapse to zero.
+        bleu_1 = sentence_bleu([ref_tokens], gen_tokens,
+                               weights=(1.0,),
+                               smoothing_function=self.smoothie)
+        # BLEU-4 (NLTK default — geometric mean of 1..4 gram precisions).
+        bleu_4 = sentence_bleu([ref_tokens], gen_tokens,
+                               smoothing_function=self.smoothie)
+        return {
+            'bleu_1': bleu_1,
+            'bleu':   bleu_4,
+            'rouge1': self.rouge.score(reference, generated)['rouge1'].fmeasure,
+            'rouge2': self.rouge.score(reference, generated)['rouge2'].fmeasure,
+            'rougeL': self.rouge.score(reference, generated)['rougeL'].fmeasure,
+            'meteor': meteor_score([ref_tokens], gen_tokens),
+        }
+
+    def corpus_bleu_at_n(self, n=4):
+        """Corpus BLEU with weights (1/n,…,1/n). n=1 → BLEU-1, n=4 → BLEU-4."""
+        if not self._corpus_gens:
+            return 0.0
+        weights = tuple([1.0 / n] * n)
+        return corpus_bleu(self._corpus_refs, self._corpus_gens,
+                           weights=weights,
+                           smoothing_function=self.smoothie)
+
+    def corpus_bleu(self):
+        """Backward-compat shorthand for corpus BLEU-4."""
+        return self.corpus_bleu_at_n(4)
+
+
+def evaluate_generation_split(df, label, sample_examples=5):
+    """
+    Generate a question for each row of df and average BLEU/ROUGE/METEOR
+    against the gold question. Returns (avg_metrics, examples, n_scored).
+    """
+    metrics = GenerationMetrics()
+    keys = ['bleu_1', 'bleu', 'rouge1', 'rouge2', 'rougeL', 'meteor']
+    sums = {k: 0.0 for k in keys}
+    n = 0
+    examples = []
+
+    print(f"\n[GEN-EVAL] Generating + scoring on {label} ({len(df):,} questions)...")
+    for i, row in df.iterrows():
+        passage     = str(row.get('article', ''))
+        gold_q      = str(row.get('question', '')).strip()
+        gold_letter = row.get('answer', None)
+        if pd.isna(gold_letter) or gold_letter not in ('A', 'B', 'C', 'D'):
+            continue
+        gold_a = str(row.get(gold_letter, '')).strip()
+        if not gold_q or not gold_a or not passage:
+            continue
+
+        gen_q = generate_question(passage, gold_a)
+        s = metrics.score(gen_q, gold_q)
+        for k in keys:
+            sums[k] += s[k]
+        n += 1
+
+        if len(examples) < sample_examples:
+            examples.append({
+                'passage_excerpt': passage[:140] + ('…' if len(passage) > 140 else ''),
+                'gold_q': gold_q,
+                'gen_q':  gen_q,
+                'gold_a': gold_a,
+                'scores': s,
+            })
+
+        if (i + 1) % 1000 == 0:
+            print(f"  scored {i + 1:,}/{len(df):,}")
+
+    avg = {k: (sums[k] / n if n else 0.0) for k in keys}
+    avg['bleu_corpus']   = metrics.corpus_bleu_at_n(4)  # corpus BLEU-4
+    avg['bleu_1_corpus'] = metrics.corpus_bleu_at_n(1)  # corpus BLEU-1
+    return avg, examples, n
+
+
+def sentence_ranker_features(sentence, passage, answer, idf_lookup, position):
+    """
+    8 features for ranking whether a candidate sentence is the answer-bearing
+    one. All non-negative so any classifier (incl. MultinomialNB) accepts them.
+      - overlap_count   : raw token overlap with answer
+      - overlap_idf     : IDF-weighted overlap (rare-word matches count more)
+      - n_tokens        : sentence length
+      - position        : sentence index in passage, normalised to [0, 1]
+      - psg_overlap     : fraction of sentence tokens that recur in passage
+      - has_capitalised : flag — sentence contains a non-initial capitalised
+                          word (proxy for named-entity content)
+      - has_digit       : flag — sentence contains digits (numbers / years)
+      - avg_token_len   : mean token length (proxy for content density)
+    """
+    s_tokens = gen_tokens_lower(sentence)
+    a_tokens = gen_tokens_lower(answer)
+    p_tokens = gen_tokens_lower(passage)
+    if not s_tokens:
+        return np.zeros(8, dtype=np.float32)
+
+    s_set, a_set, p_set = set(s_tokens), set(a_tokens), set(p_tokens)
+
+    overlap_count = float(len(s_set & a_set))
+    overlap_idf   = float(sum(idf_lookup.get(w, 1.0) for w in (s_set & a_set)))
+    n_tokens      = float(len(s_tokens))
+    psg_overlap   = float(len(s_set & p_set)) / max(1.0, len(s_set))
+
+    raw_tokens = sentence.split()
+    has_cap = float(any(t[0].isupper() for t in raw_tokens[1:] if t and t[0].isalpha()))
+    has_dig = float(bool(re.search(r'\d', sentence)))
+    avg_len = float(np.mean([len(t) for t in s_tokens]))
+
+    return np.array([
+        overlap_count, overlap_idf, n_tokens, position,
+        psg_overlap, has_cap, has_dig, avg_len,
+    ], dtype=np.float32)
+
+
+def build_ranker_train_data(df, idf_lookup, max_rows=20000, neg_per_pos=3,
+                            label_by_bleu=True):
+    """
+    Build (X, y) for training sentence-ranker classifiers.
+
+    Two label strategies:
+      label_by_bleu = False
+          Positive = highest-overlap-with-gold-answer sentence.
+          Trains the ranker to *imitate* the overlap heuristic — which means
+          it can match the baseline at best, never beat it.
+
+      label_by_bleu = True   (default)
+          Positive = the sentence whose Wh-cloze produces the highest BLEU
+          against the gold question. Now the ranker learns *what produces
+          good QUESTIONS*, not what looks answer-bearing — so it can
+          legitimately beat the overlap baseline at generation time.
+
+    Each row contributes 1 positive + up to neg_per_pos sampled negatives.
+    """
+    X, y = [], []
+    rng = np.random.default_rng(42)
+
+    # Per-row sentence_bleu scorer (reuses the same smoothing as evaluation)
+    smoothie = SmoothingFunction().method1 if label_by_bleu else None
+
+    for _, row in df.head(max_rows).iterrows():
+        passage     = str(row.get('article', ''))
+        gold_letter = row.get('answer', None)
+        if pd.isna(gold_letter) or gold_letter not in ('A', 'B', 'C', 'D'):
+            continue
+        gold_a = str(row.get(gold_letter, '')).strip()
+        gold_q = str(row.get('question', '')).strip()
+        if not gold_a or not passage:
+            continue
+        if label_by_bleu and not gold_q:
+            continue
+
+        sentences = split_sentences(passage)
+        if len(sentences) < 2:
+            continue
+
+        if label_by_bleu:
+            # Score each sentence by the BLEU of its cloze vs gold question
+            ref_tokens = gen_tokens_lower(gold_q)
+            scored = []
+            for idx, s in enumerate(sentences):
+                cloze_q   = cloze_question(s, gold_a, passage_for_fallback=passage)
+                gen_tokens = gen_tokens_lower(cloze_q)
+                if not gen_tokens or not ref_tokens:
+                    bleu = 0.0
+                else:
+                    bleu = sentence_bleu([ref_tokens], gen_tokens,
+                                         smoothing_function=smoothie)
+                scored.append((idx, bleu))
+        else:
+            # Original: overlap-based
+            gold_words = set(gen_tokens_lower(gold_a))
+            scored = [(idx, len(gold_words & set(gen_tokens_lower(s))))
+                      for idx, s in enumerate(sentences)]
+
+        scored.sort(key=lambda t: t[1], reverse=True)
+        pos_idx = scored[0][0]
+        neg_pool = [idx for idx, _ in scored[1:]]
+        # Randomly sample up to neg_per_pos negatives
+        if len(neg_pool) > neg_per_pos:
+            neg_pool = list(rng.choice(neg_pool, size=neg_per_pos, replace=False))
+
+        n_sents = len(sentences)
+        for idx, label in [(pos_idx, 1)] + [(j, 0) for j in neg_pool]:
+            pos_norm = idx / max(1, n_sents - 1)
+            X.append(sentence_ranker_features(
+                sentences[idx], passage, gold_a, idf_lookup, pos_norm))
+            y.append(label)
+
+    return np.array(X, dtype=np.float32), np.array(y, dtype=np.int32)
+
+
+def train_sentence_rankers(train_df, idf_lookup):
+    """
+    Train three sentence rankers — LR, NB, SVM — on the same features.
+    Returns dict {'LR': ..., 'NB': ..., 'SVM': ...}.
+    """
+    print("\n[GEN-RANKERS] Building BLEU-labelled training data for sentence rankers...")
+    print("  (positive = sentence whose cloze BLEUs highest vs gold question;")
+    print("   trains the ranker to pick *generation-friendly* sentences, not")
+    print("   just answer-bearing ones — the latter would just imitate the baseline)")
+    X, y = build_ranker_train_data(train_df, idf_lookup, label_by_bleu=True)
+    print(f"  {len(X):,} training examples × {X.shape[1]} features  "
+          f"(positives: {int(y.sum()):,})")
+
+    rankers = {}
+
+    print("[GEN-RANKERS] Training LR ranker...")
+    rankers['LR'] = LogisticRegression(
+        C=1.0, max_iter=300, n_jobs=-1, random_state=42
+    ).fit(X, y)
+
+    print("[GEN-RANKERS] Training NB ranker...")
+    rankers['NB'] = MultinomialNB(alpha=1.0).fit(X, y)
+
+    print("[GEN-RANKERS] Training SVM ranker...")
+    rankers['SVM'] = SGDClassifier(
+        loss='hinge', alpha=1e-4, max_iter=50, random_state=42, n_jobs=-1,
+    ).fit(X, y)
+
+    return rankers
+
+
+def _ranker_score(ranker, feats):
+    """Get probability/decision score for a ranker that may or may not have predict_proba."""
+    if hasattr(ranker, 'predict_proba'):
+        return ranker.predict_proba(feats)[:, 1]
+    return ranker.decision_function(feats)
+
+
+def generate_question_with_ranker(passage, answer_text, ranker, idf_lookup):
+    """
+    Spec §4.2.3 Step 3 — pick the cloze source sentence using a trained
+    ranker instead of the overlap heuristic, then apply the same Wh-template
+    cloze (Step 2). Returns the generated question string.
+    """
+    sentences = split_sentences(passage)
+    if not sentences:
+        return _generic_template_for(passage)
+
+    n_sents = len(sentences)
+    feats = np.stack([
+        sentence_ranker_features(s, passage, answer_text, idf_lookup,
+                                 idx / max(1, n_sents - 1))
+        for idx, s in enumerate(sentences)
+    ])
+    scores = _ranker_score(ranker, feats)
+    best_sent = sentences[int(scores.argmax())]
+    return cloze_question(best_sent, answer_text, passage_for_fallback=passage)
+
+
+def evaluate_generation_with_ranker(df, ranker, idf_lookup, label):
+    """Evaluate a single ranker variant — returns (avg_metrics, n_scored)."""
+    metrics = GenerationMetrics()
+    keys = ['bleu_1', 'bleu', 'rouge1', 'rouge2', 'rougeL', 'meteor']
+    sums = {k: 0.0 for k in keys}
+    n = 0
+    print(f"  [{label}] Generating + scoring ({len(df):,} questions)...")
+    for i, row in df.iterrows():
+        passage     = str(row.get('article', ''))
+        gold_q      = str(row.get('question', '')).strip()
+        gold_letter = row.get('answer', None)
+        if pd.isna(gold_letter) or gold_letter not in ('A', 'B', 'C', 'D'):
+            continue
+        gold_a = str(row.get(gold_letter, '')).strip()
+        if not gold_q or not gold_a or not passage:
+            continue
+        gen_q = generate_question_with_ranker(passage, gold_a, ranker, idf_lookup)
+        s = metrics.score(gen_q, gold_q)
+        for k in keys:
+            sums[k] += s[k]
+        n += 1
+        if (i + 1) % 2000 == 0:
+            print(f"    scored {i + 1:,}/{len(df):,}")
+    avg = {k: sums[k] / n if n else 0.0 for k in keys}
+    avg['bleu_corpus']   = metrics.corpus_bleu_at_n(4)
+    avg['bleu_1_corpus'] = metrics.corpus_bleu_at_n(1)
+    return avg, n
+
+
+def run_generation_pipeline(train_df, val_df, test_df, idf_lookup):
+    """
+    Full spec §4.2.3 question-generation pipeline:
+      Step 1 — extract candidate sentences (overlap heuristic OR ranker)
+      Step 2 — Wh-template cloze
+      Step 3 — Ranker over candidate sentences (LR / NB / SVM)
+
+    Trains all three rankers on `train_df`, then evaluates each variant
+    plus a Baseline (overlap heuristic) on val and test. Returns a dict
+    keyed by variant name, suitable for print_summary's `generation` arg.
+
+    Each variant entry has:
+      {'val': {'metrics': {...}, 'n': int},
+       'test': {'metrics': {...}, 'n': int}}
+    """
+    print("\n" + "=" * 70)
+    print("A7  Question Generation  —  Wh-template cloze + sentence ranker")
+    print("=" * 70)
+
+    if not _NLTK_AVAILABLE:
+        print("[WARN] nltk / rouge-score not installed — skipping generation.")
+        print("       Install with: pip install nltk rouge-score")
+        return None
+
+    _ensure_nltk_data()
+
+    # ─── Variant 1: Baseline (overlap heuristic, current logic) ──────────
+    print("\n[GEN] Variant: Baseline (overlap heuristic)")
+    bv_m, bv_ex, bv_n = evaluate_generation_split(val_df,  "VAL")
+    bt_m, _,     bt_n = evaluate_generation_split(test_df, "TEST")
+
+    # 5 baseline examples for eyeballing quality
+    print("\n[Examples] Baseline cloze vs gold (val):")
+    for i, ex in enumerate(bv_ex[:5], start=1):
+        print(f"\n  ── Example {i} ─────────────────────────────────────")
+        print(f"  Passage : {ex['passage_excerpt']}")
+        print(f"  Gold A  : {ex['gold_a']}")
+        print(f"  Gold Q  : {ex['gold_q']}")
+        print(f"  Gen  Q  : {ex['gen_q']}")
+        s = ex['scores']
+        print(f"  Scores  : BLEU={s['bleu']:.3f}  R1={s['rouge1']:.3f}  "
+              f"R2={s['rouge2']:.3f}  RL={s['rougeL']:.3f}  MET={s['meteor']:.3f}")
+
+    results = {
+        'Baseline (overlap)': {
+            'val':  {'metrics': bv_m, 'n': bv_n},
+            'test': {'metrics': bt_m, 'n': bt_n},
+        }
+    }
+
+    # ─── Variants 2-4: LR / NB / SVM sentence rankers (Step 3) ───────────
+    rankers = train_sentence_rankers(train_df, idf_lookup)
+    for name, ranker in rankers.items():
+        print(f"\n[GEN] Variant: {name} sentence ranker")
+        v_m, v_n = evaluate_generation_with_ranker(val_df,  ranker, idf_lookup, "VAL")
+        t_m, t_n = evaluate_generation_with_ranker(test_df, ranker, idf_lookup, "TEST")
+        results[f'Ranker — {name}'] = {
+            'val':  {'metrics': v_m, 'n': v_n},
+            'test': {'metrics': t_m, 'n': t_n},
+        }
+
+    return results
+
+
 # ─── Final summary ───────────────────────────────────────────────────────────
 def print_summary(results, generation=None):
+    """
+    Final comparison table for Model A.
+      results    : verification results dict (LR, SVM, NB, K-Means, ensembles)
+      generation : optional dict from run_generation_pipeline with 'VAL'/'TEST'
+                   keys, each mapping to {'metrics': {...}, 'n': int}.
+    """
+    # ─── Part 1: Verification (classification) ───
     print("\n" + "=" * 110)
     print("FINAL COMPARISON  —  Model A  (Part 1: Verification, classical ML)")
     print("=" * 110)
@@ -1235,7 +1795,38 @@ def print_summary(results, generation=None):
             pur_str = f"{r['purity'] * 100:>7.2f}%"
             print(f"{name:<26} {r['task']:<16} {pur_str:>8} {'—':>8}   "
                   f"{'—':>8} {'—':>8}   {'—':>8} {'—':>8}")
-    print("=" * 110 + "\n")
+    print("=" * 110)
+
+    # ─── Part 2: Generation (text-gen, BLEU/ROUGE/METEOR) ───
+    if generation:
+        print("\n" + "=" * 92)
+        print("FINAL COMPARISON  —  Model A  (Part 2: Generation, BLEU/ROUGE/METEOR)")
+        print("=" * 132)
+        # BLEU columns:
+        #   BLEU-1   = unigram precision (more meaningful for short outputs;
+        #              what most short-text generation papers report)
+        #   BLEU-4   = NLTK default 4-gram (geometric mean of 1..4-gram precision)
+        #   *-c suffix = corpus BLEU (Papineni 2002), pooled across the split
+        print(f"{'Variant':<22} {'Split':<6} {'N':>7}   "
+              f"{'BLEU-1':>7} {'BLEU-1-c':>9} {'BLEU-4':>7} {'BLEU-4-c':>9} "
+              f"{'ROUGE-1':>8} {'ROUGE-L':>8} {'METEOR':>7}")
+        print("-" * 132)
+        for variant_name, splits in generation.items():
+            for split_name in ('val', 'test'):
+                if split_name not in splits:
+                    continue
+                m = splits[split_name]['metrics']
+                n = splits[split_name]['n']
+                b1   = m.get('bleu_1', 0.0)
+                b1_c = m.get('bleu_1_corpus', 0.0)
+                b4   = m.get('bleu', 0.0)
+                b4_c = m.get('bleu_corpus', 0.0)
+                print(f"{variant_name:<22} {split_name.upper():<6} {n:>7,}   "
+                      f"{b1:>7.4f} {b1_c:>9.4f} {b4:>7.4f} {b4_c:>9.4f} "
+                      f"{m['rouge1']:>8.4f} {m['rougeL']:>8.4f} {m['meteor']:>7.4f}")
+            print("-" * 132)
+        print("=" * 132)
+    print()
 
 
 # ─── Main orchestrator ────────────────────────────────────────────────────────
@@ -1244,10 +1835,15 @@ def main():
     print("# QuizForge — Model A")
     print("#" * 70)
 
+    # ─── 1. Load data once ────────────────────────────────────────────────
     train_df, val_df, train_y, val_y = load_data()
-    test_df = pd.read_csv(TEST_CSV_PATH)
-    print(f"  Test:  {len(test_df):,} questions")
 
+    # Test split is loaded only for Part 2 (generation eval). Part 1 keeps
+    # using val for model selection — unchanged from before.
+    test_df = pd.read_csv(TEST_CSV_PATH)
+    print(f"  Test:  {len(test_df):,} questions  (used for generation eval)")
+
+    # ─── 2. Compute shared resources (IDF, TF-IDF vectorizer) ─────────────
     print("\n[SHARED] Computing IDF over training corpus...")
     idf = compute_idf(TRAIN_FEATURES_PATH)
     print(f"  IDF range [{idf.min():.3f}, {idf.max():.3f}], median {np.median(idf):.3f}")
@@ -1255,17 +1851,30 @@ def main():
     vec = fit_tfidf_vectorizer(TRAIN_CSV_PATH)
     os.makedirs(MODELS_DIR, exist_ok=True)
     joblib.dump(vec, TFIDF_VEC_PATH)
-    print(f"  vectorizer saved to {TFIDF_VEC_PATH}")
+    print(f"  vectorizer saved → {TFIDF_VEC_PATH}")
 
+    # GloVe is optional — auto-detect, skip gracefully if unavailable
     glove = load_glove()
+
+    # IDF lookup (word → IDF score) — used by GloVe averaging *and* by the
+    # generation ranker features. Always build it; it's cheap.
     idf_lookup = build_idf_lookup(vec)
     print(f"  IDF lookup ready ({len(idf_lookup):,} unigrams from TF-IDF vocab)")
 
-    train_X = build_features(TRAIN_FEATURES_PATH, train_df, idf, vec,
-                             glove=glove, idf_lookup=idf_lookup, label="train")
-    val_X = build_features(VAL_FEATURES_PATH, val_df, idf, vec,
-                           glove=glove, idf_lookup=idf_lookup, label="val")
+    # ─── 3. Build per-option features once (used by LR, SVM, Ensemble) ────
+    train_X = build_features(
+        TRAIN_FEATURES_PATH, train_df, idf, vec,
+        glove=glove, idf_lookup=idf_lookup, label="train",
+    )
+    val_X = build_features(
+        VAL_FEATURES_PATH, val_df, idf, vec,
+        glove=glove, idf_lookup=idf_lookup, label="val",
+    )
 
+    # ─── 3b. Hold out 10% of train for the stacking meta-classifier ───────
+    # Stacking needs base-model predictions on data the bases didn't see
+    # during training. We train base models on the 90% main split and
+    # evaluate them on the 10% holdout to build clean meta-features.
     rng = np.random.default_rng(42)
     perm = rng.permutation(len(train_X))
     n_stack = len(train_X) // 10
@@ -1280,22 +1889,37 @@ def main():
 
     results = {}
 
+    # ─── 4. Run each approach ─────────────────────────────────────────────
+    # Base models are trained on the 90% main split (so we can collect clean
+    # OOF-style predictions on the 10% holdout for stacking). This costs
+    # individual EM ~0.3–0.5pp but is required for honest stacking.
     lr_scorer, lr_em, lr_em_f1, lr_scores, lr_bin_acc, lr_bin_f1 = run_logistic_regression(
-        train_X_main, train_y_main, val_X, val_y, idf, vec)
+        train_X_main, train_y_main, val_X, val_y, idf, vec
+    )
     results['Logistic Regression'] = {
         'task': 'Answer Verif', 'em': lr_em, 'em_f1': lr_em_f1,
         'binary_acc': lr_bin_acc, 'binary_f1': lr_bin_f1,
     }
 
     svm_scorer, svm_em, svm_em_f1, svm_scores, svm_bin_acc, svm_bin_f1 = run_linear_svm(
-        train_X_main, train_y_main, val_X, val_y, idf, vec)
+        train_X_main, train_y_main, val_X, val_y, idf, vec
+    )
     results['Linear SVM'] = {
         'task': 'Answer Verif', 'em': svm_em, 'em_f1': svm_em_f1,
         'binary_acc': svm_bin_acc, 'binary_f1': svm_bin_f1,
     }
 
+    # Random Forest is trained as a third *ensemble base member* per spec §4.4
+    # (NOT listed as a primary deliverable — the spec puts RF under "Difficulty
+    # Estimation", not Answer Verification). Its standalone EM is shown inside
+    # the A2.5 section above; we don't add it to the final summary table to
+    # keep the canonical 5 (LR, SVM, NB, K-Means, Ensemble) clean.
+    # We need rf_em (for ensemble weighting), rf_scores (soft-vote input),
+    # and rf_model (stacking input). The other return values are unused
+    # since RF doesn't appear in the final summary table.
     rf_em, _, rf_scores, _, _, rf_model = run_random_forest(
-        train_X_main, train_y_main, val_X, val_y)
+        train_X_main, train_y_main, val_X, val_y
+    )
 
     nb_acc, nb_f1 = run_naive_bayes(train_df, val_df)
     results['Naive Bayes'] = {
@@ -1305,6 +1929,7 @@ def main():
     kmeans_purity = run_kmeans(TRAIN_FEATURES_PATH, VAL_FEATURES_PATH, val_y)
     results['K-Means Clustering'] = {'task': 'Clustering', 'purity': kmeans_purity}
 
+    # A5: weighted soft voting (heuristic weights from individual EM)
     ens_em, ens_em_f1, ens_bin_acc, ens_bin_f1 = run_ensemble(
         members=[
             {'name': 'LR',  'scores': lr_scores,  'em': lr_em},
@@ -1318,6 +1943,7 @@ def main():
         'binary_acc': ens_bin_acc, 'binary_f1': ens_bin_f1,
     }
 
+    # A6: stacking ensemble (meta-LR with weights learned from data)
     stack_em, stack_em_f1, stack_bin_acc, stack_bin_f1, meta_lr = run_stacking(
         lr_scorer, svm_scorer, rf_model,
         stack_X, stack_y, val_X, val_y,
@@ -1327,48 +1953,75 @@ def main():
         'binary_acc': stack_bin_acc, 'binary_f1': stack_bin_f1,
     }
 
+    # ─── 4b. TEST-set evaluation for verification (held-out generalisation) ─
+    # Val is what we tuned on (best-epoch selection, ensemble weights).
+    # Test is held-out — if test ≈ val, no overfitting; if test << val, overfit.
     print("\n" + "=" * 70)
     print("Test-set evaluation  —  generalisation check on held-out data")
     print("=" * 70)
     test_y = test_df['answer'].map(ANSWER_MAP).values.astype(np.int32)
-    test_X = build_features(TEST_FEATURES_PATH, test_df, idf, vec,
-                            glove=glove, idf_lookup=idf_lookup, label="test")
+    test_X = build_features(
+        TEST_FEATURES_PATH, test_df, idf, vec,
+        glove=glove, idf_lookup=idf_lookup, label="test",
+    )
     F = test_X.shape[2]
 
+    # Base-model test predictions
     lr_test_scores  = lr_scorer.decision_function(test_X)
     svm_test_scores = svm_scorer.decision_function(test_X)
     rf_test_scores  = rf_model.predict_proba(test_X.reshape(-1, F))[:, 1].reshape(-1, 4)
 
-    for nm, scores in [('Logistic Regression', lr_test_scores),
-                       ('Linear SVM',          svm_test_scores)]:
+    for nm, scores in [
+        ('Logistic Regression', lr_test_scores),
+        ('Linear SVM',          svm_test_scores),
+    ]:
         em, em_f1, ba, bf = eval_per_option_metrics(scores, test_y)
-        results[nm].update({'test_em': em, 'test_em_f1': em_f1,
-                            'test_binary_acc': ba, 'test_binary_f1': bf})
+        results[nm].update({
+            'test_em': em, 'test_em_f1': em_f1,
+            'test_binary_acc': ba, 'test_binary_f1': bf,
+        })
         print(f"[TEST] {nm:<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
 
-    val_ems = np.array([results['Logistic Regression']['em'],
-                        results['Linear SVM']['em'], rf_em], dtype=np.float64)
-    raw_w = np.maximum(0.0, val_ems - 0.25)
+    # Soft-Voting Ensemble on test (re-use the same skill-above-random weights
+    # that run_ensemble computed from val EMs).
+    val_ems_for_weights = np.array(
+        [results['Logistic Regression']['em'],
+         results['Linear SVM']['em'],
+         rf_em],
+        dtype=np.float64,
+    )
+    raw_w = np.maximum(0.0, val_ems_for_weights - 0.25)
     weights = raw_w / raw_w.sum() if raw_w.sum() > 1e-9 else np.ones(3) / 3
-    ens_test_scores = (weights[0] * normalize_per_question(lr_test_scores)
-                       + weights[1] * normalize_per_question(svm_test_scores)
-                       + weights[2] * normalize_per_question(rf_test_scores)).astype(np.float32)
+    ens_test_scores = (
+        weights[0] * normalize_per_question(lr_test_scores)
+        + weights[1] * normalize_per_question(svm_test_scores)
+        + weights[2] * normalize_per_question(rf_test_scores)
+    ).astype(np.float32)
     em, em_f1, ba, bf = eval_per_option_metrics(ens_test_scores, test_y)
-    results['Ensemble — Soft Voting'].update({'test_em': em, 'test_em_f1': em_f1,
-                                              'test_binary_acc': ba, 'test_binary_f1': bf})
-    print(f"[TEST] Ensemble Soft Voting    EM={em*100:6.2f}%  F1={em_f1:.4f}")
+    results['Ensemble — Soft Voting'].update({
+        'test_em': em, 'test_em_f1': em_f1,
+        'test_binary_acc': ba, 'test_binary_f1': bf,
+    })
+    print(f"[TEST] {'Ensemble — Soft Voting':<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
 
+    # Stacking Ensemble on test — re-apply the same trained meta-LR
     test_meta = _build_meta_features(lr_test_scores, svm_test_scores, rf_test_scores)
     N_t = test_meta.shape[0]
     test_meta_flat = test_meta.reshape(N_t * 4, -1)
     test_probs = meta_lr.predict_proba(test_meta_flat)[:, 1]
     stack_test_scores = test_probs.reshape(N_t, 4)
     em, em_f1, ba, bf = eval_per_option_metrics(stack_test_scores, test_y)
-    results['Ensemble — Stacking'].update({'test_em': em, 'test_em_f1': em_f1,
-                                           'test_binary_acc': ba, 'test_binary_f1': bf})
-    print(f"[TEST] Ensemble Stacking       EM={em*100:6.2f}%  F1={em_f1:.4f}")
+    results['Ensemble — Stacking'].update({
+        'test_em': em, 'test_em_f1': em_f1,
+        'test_binary_acc': ba, 'test_binary_f1': bf,
+    })
+    print(f"[TEST] {'Ensemble — Stacking':<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
 
-    print_summary(results)
+    # ─── 5. Part 2: Question generation pipeline (BLEU/ROUGE/METEOR) ──────
+    generation = run_generation_pipeline(train_df, val_df, test_df, idf_lookup)
+
+    # ─── 6. Comparison table ──────────────────────────────────────────────
+    print_summary(results, generation=generation)
 
 
 if __name__ == "__main__":
