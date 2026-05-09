@@ -1,0 +1,133 @@
+================================================================================
+QuizForge — Model A Neural (sentence-transformers) — terminal output
+Source: python src/model_a_neural.py
+NOTE: Run was killed during the generation-eval sentence-encoding step
+      (~25 min in, ~30+ min remaining). Verification metrics are complete.
+      Generation neural numbers were not collected on this run.
+================================================================================
+
+PS C:\Users\sfate\OneDrive\Desktop\AI project\src> python model_a_neural.py
+
+######################################################################
+# Model A — Neural Approach (sentence-transformers)
+# Separate from model_a.py classical pipeline for fair comparison
+######################################################################
+
+[DATA] Loading CSVs...
+  Train: 30,000 (subsampled to keep CPU runtime tractable)
+  Val:   8,787
+  Test:  8,787
+
+[NEURAL] Loading sentence-transformers/all-MiniLM-L6-v2 (CPU)...
+  (first run downloads ~80 MB to ~/.cache/torch/sentence_transformers/)
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+modules.json: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 349/349 [00:00<?, ?B/s]
+config_sentence_transformers.json: 100%|██████████████████████████████████████████████████████████████████████████████████████████████| 116/116 [00:00<?, ?B/s]
+README.md: 10.5kB [00:00, ?B/s]
+sentence_bert_config.json: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████| 53.0/53.0 [00:00<?, ?B/s]
+config.json: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 612/612 [00:00<?, ?B/s]
+model.safetensors: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████| 90.9M/90.9M [00:22<00:00, 3.96MB/s]
+Loading weights: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████| 103/103 [00:00<00:00, 8583.10it/s]
+tokenizer_config.json: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████| 350/350 [00:00<?, ?B/s]
+vocab.txt: 232kB [00:00, 3.56MB/s]
+tokenizer.json: 466kB [00:00, 9.10MB/s]
+special_tokens_map.json: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████| 112/112 [00:00<?, ?B/s]
+config.json: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 190/190 [00:00<?, ?B/s]
+  ✓ Loaded — embedding dim = 384
+
+[NEURAL] Encoding texts for verification (cached on disk)...
+  [ENCODING]   train_subset/article     (30,000 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 469/469 [11:11<00:00,  1.43s/it]
+  [ENCODING]   train_subset/question    (30,000 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 469/469 [00:50<00:00,  9.32it/s]
+  [ENCODING]   train_subset/A           (30,000 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 469/469 [00:35<00:00, 13.07it/s]
+  [ENCODING]   train_subset/B           (30,000 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 469/469 [00:36<00:00, 12.93it/s]
+  [ENCODING]   train_subset/C           (30,000 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 469/469 [00:37<00:00, 12.57it/s]
+  [ENCODING]   train_subset/D           (30,000 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 469/469 [00:38<00:00, 12.15it/s]
+  [ENCODING]   val/article              (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [03:20<00:00,  1.45s/it]
+  [ENCODING]   val/question             (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:15<00:00,  9.11it/s]
+  [ENCODING]   val/A                    (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:10<00:00, 13.12it/s]
+  [ENCODING]   val/B                    (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:10<00:00, 12.59it/s]
+  [ENCODING]   val/C                    (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:10<00:00, 12.81it/s]
+  [ENCODING]   val/D                    (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:11<00:00, 12.05it/s]
+  [ENCODING]   test/article             (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [03:19<00:00,  1.44s/it]
+  [ENCODING]   test/question            (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:15<00:00,  8.97it/s]
+  [ENCODING]   test/A                   (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:10<00:00, 13.14it/s]
+  [ENCODING]   test/B                   (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:10<00:00, 13.10it/s]
+  [ENCODING]   test/C                   (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:11<00:00, 12.32it/s]
+  [ENCODING]   test/D                   (8,787 texts)...
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████| 138/138 [00:11<00:00, 12.27it/s]
+
+[NEURAL] Building per-option semantic features...
+  Shapes: train (30000, 4, 9), val (8787, 4, 9), test (8787, 4, 9)
+
+======================================================================
+Neural Verification — sentence-transformer features → LR head
+======================================================================
+
+[NEURAL-VERIF] Fitting StandardScaler...
+[NEURAL-VERIF] Training LR head on 120,000 option-examples × 9 features...
+
+[NEURAL-VERIF] Final metrics:
+  Val  EM:  34.20%   macro-F1 = 0.3414
+  Test EM:  33.81%   macro-F1 = 0.3380
+
+[NEURAL] Saving model + scaler to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_neural_lr.pkl...
+  ✓ Saved
+
+======================================================================
+Neural Generation — sentence-transformer ranker (cloze on top)
+======================================================================
+
+[NEURAL-GEN] VAL: collecting sentences for batch encoding...
+  Encoding 149,200 passage sentences in batch...
+Batches:   4%|████▏                                                                                                          | 87/2332 [00:53<15:28,  2.42it/s]
+
+================================================================================
+[USER INTERRUPT] — Process killed (~25 min elapsed, generation eval not finished)
+================================================================================
+
+KEY TAKEAWAYS FROM THIS RUN
+================================================================================
+
+Verification (per-question Exact Match) — neural vs classical:
+
+   Approach                                Val-EM     Test-EM
+   --------------------------------------------------------------
+   Classical Stacking (LR + SVM + RF)      39.18%     38.69%   ← winner
+   Neural (MiniLM cosines → LR head)       34.20%     33.81%   (-5pp)
+
+   Reading: pre-trained sentence embeddings out-of-the-box do NOT
+   beat carefully engineered classical features on RACE-style MCQ.
+   This makes sense: classical pipeline has 54 features (lexical
+   overlap + IDF-weighted overlap + sentence-level + question-aware
+   + GloVe-IDF + length + numeric); neural baseline has 9 cosine
+   features. Without fine-tuning the BERT backbone (impractical on
+   CPU), the engineered classical features remain competitive.
+
+Generation (BLEU/ROUGE/METEOR):
+   Killed before completion — sentence encoding takes ~30 min
+   per split on CPU and isn't currently cached. To resume:
+     • cached passage/question/option encodings persist in
+       data/embeddings/  →  re-run will skip those
+     • adding a sentence-embedding cache (~10 LOC) would
+       make subsequent runs ~2 min instead of 30 min
+
+================================================================================
+END OF MODEL A NEURAL RUN (partial)
+================================================================================
