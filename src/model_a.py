@@ -810,23 +810,137 @@ def train_per_option(model, train_X, train_y_raw, val_X, val_y, name,
     return scaler, model, em, em_f1, val_scores, binary_acc, binary_f1
 
 
-# ─── Final summary (stub — populated in subsequent commits) ──────────────────
-def print_summary(results=None, generation=None):
-    print("\n[SUMMARY] Foundation infrastructure is ready.")
-    print("  Feature engineering, scorer wrapper, and per-option SGD trainer")
-    print("  are in place. Model approaches and the generation pipeline arrive")
-    print("  in the commits that follow.")
+# ─── A1: Logistic Regression ──────────────────────────────────────────────────
+def run_logistic_regression(train_X, train_y, val_X, val_y, idf, vec):
+    print("\n" + "=" * 70)
+    print("A1  Logistic Regression  —  Answer Verification")
+    print("=" * 70)
+    model = SGDClassifier(
+        loss='log_loss', penalty='l2', alpha=1e-4,
+        max_iter=1, warm_start=True, random_state=42, n_jobs=-1,
+        learning_rate='optimal', verbose=0,
+    )
+    scaler, model, em, em_f1, scores, bin_acc, bin_f1 = train_per_option(
+        model, train_X, train_y, val_X, val_y, "LR",
+    )
+    scorer = MCOptionScorer(scaler, model, idf=idf, vectorizer=vec)
+    save_model(scorer, MODEL_LR_PATH)
+    return scorer, em, em_f1, scores, bin_acc, bin_f1
+
+
+# ─── A2: Linear SVM ──────────────────────────────────────────────────────────
+def run_linear_svm(train_X, train_y, val_X, val_y, idf, vec):
+    print("\n" + "=" * 70)
+    print("A2  Linear SVM  —  Answer Verification")
+    print("=" * 70)
+    # Slightly higher alpha than LR (5e-4 vs 1e-4) — hinge loss is more prone
+    # to late-epoch overshoot than log_loss; extra regularisation tames it.
+    # Best-epoch restore in train_per_option is the additional safety net.
+    model = SGDClassifier(
+        loss='hinge', penalty='l2', alpha=5e-4,
+        max_iter=1, warm_start=True, random_state=42, n_jobs=-1,
+        learning_rate='optimal', verbose=0,
+    )
+    scaler, model, em, em_f1, scores, bin_acc, bin_f1 = train_per_option(
+        model, train_X, train_y, val_X, val_y, "SVM",
+    )
+    scorer = MCOptionScorer(scaler, model, idf=idf, vectorizer=vec)
+    save_model(scorer, MODEL_SVM_PATH)
+    return scorer, em, em_f1, scores, bin_acc, bin_f1
+
+
+# ─── A2.5: Random Forest (per-option binary, third base for ensemble) ──────
+def run_random_forest(train_X, train_y_raw, val_X, val_y,
+                      n_estimators=100, max_depth=20):
+    """
+    RandomForest as a third base classifier for the ensemble. Trees capture
+    non-linear feature interactions that linear LR/SVM can't, so RF makes
+    *different mistakes* — that decorrelation is what lets the ensemble
+    actually exceed the best individual.
+
+    Same per-option binary framing as LR/SVM:
+      - Flatten (N, 4, F) → (N*4, F), build binary labels (1=correct option)
+      - Train RF, get class-1 probabilities, reshape to (N, 4), argmax
+    """
+    print("\n" + "=" * 70)
+    print("A2.5  Random Forest  —  Answer Verification (ensemble base)")
+    print("=" * 70)
+
+    N, _, F = train_X.shape
+    train_flat = train_X.reshape(N * 4, F)
+    val_flat   = val_X.reshape(-1, F)
+
+    train_y_bin = np.zeros(N * 4, dtype=np.int32)
+    train_y_bin[np.arange(N) * 4 + train_y_raw] = 1
+
+    print(f"[RF] Training {n_estimators} trees, max_depth={max_depth}, "
+          f"on {N * 4:,} option-examples × {F} features (n_jobs=-1)")
+    model = RandomForestClassifier(
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        min_samples_leaf=10,
+        class_weight='balanced',  # per-option binary task is 1:3 imbalanced
+        n_jobs=-1,
+        random_state=42,
+    )
+    model.fit(train_flat, train_y_bin)
+    print("[RF] ✓ training complete")
+
+    # P(correct=1) per option, reshape (N_val, 4), argmax
+    val_probs  = model.predict_proba(val_flat)[:, 1]
+    val_scores = val_probs.reshape(-1, 4)
+    val_preds  = val_scores.argmax(axis=1)
+
+    em    = accuracy_score(val_y, val_preds)
+    em_f1 = f1_score(val_y, val_preds, average='macro')
+
+    val_y_binary = np.zeros(len(val_y) * 4, dtype=np.int32)
+    val_y_binary[np.arange(len(val_y)) * 4 + val_y] = 1
+    binary_preds = (val_probs > 0.5).astype(np.int32)
+    binary_acc   = accuracy_score(val_y_binary, binary_preds)
+    binary_f1    = f1_score(val_y_binary, binary_preds, average='macro')
+
+    print(f"\n[RF] Final metrics:")
+    print(f"  Per-question (EM, 4-way):     {em * 100:6.2f}%   macro-F1 = {em_f1:.4f}")
+    print(f"  Binary  (peer-comparable):    {binary_acc * 100:6.2f}%   macro-F1 = {binary_f1:.4f}")
+    print(classification_report(val_y, val_preds,
+                                target_names=['A', 'B', 'C', 'D'], digits=4))
+
+    save_model(model, MODEL_RF_PATH)
+    return em, em_f1, val_scores, binary_acc, binary_f1, model
+
+
+# ─── Final summary ───────────────────────────────────────────────────────────
+def print_summary(results, generation=None):
+    print("\n" + "=" * 92)
+    print("FINAL COMPARISON  —  Model A  (Part 1: Verification)")
+    print("=" * 92)
+    print(f"{'Approach':<30} {'Task':<16} "
+          f"{'EM':>8} {'EM-F1':>8}   {'BinAcc':>8} {'BinF1':>8}")
+    print("-" * 92)
+    for name, r in results.items():
+        if 'em' in r:
+            em_str = f"{r['em'] * 100:>7.2f}%"
+            f1_str = f"{r['em_f1']:>8.4f}"
+            if 'binary_acc' in r:
+                bacc = f"{r['binary_acc'] * 100:>7.2f}%"
+                bf1  = f"{r['binary_f1']:>8.4f}"
+            else:
+                bacc = f"{'—':>8}"
+                bf1  = f"{'—':>8}"
+            print(f"{name:<30} {r['task']:<16} {em_str:>8} {f1_str}   {bacc} {bf1}")
+    print("=" * 92 + "\n")
 
 
 # ─── Main orchestrator ────────────────────────────────────────────────────────
 def main():
     print("\n" + "#" * 70)
-    print("# QuizForge — Model A  (foundation)")
+    print("# QuizForge — Model A")
     print("#" * 70)
 
     train_df, val_df, train_y, val_y = load_data()
     test_df = pd.read_csv(TEST_CSV_PATH)
-    print(f"  Test:  {len(test_df):,} questions  (held out for later evaluation)")
+    print(f"  Test:  {len(test_df):,} questions")
 
     print("\n[SHARED] Computing IDF over training corpus...")
     idf = compute_idf(TRAIN_FEATURES_PATH)
@@ -841,16 +955,35 @@ def main():
     idf_lookup = build_idf_lookup(vec)
     print(f"  IDF lookup ready ({len(idf_lookup):,} unigrams from TF-IDF vocab)")
 
-    _train_X = build_features(
-        TRAIN_FEATURES_PATH, train_df, idf, vec,
-        glove=glove, idf_lookup=idf_lookup, label="train",
-    )
-    _val_X = build_features(
-        VAL_FEATURES_PATH, val_df, idf, vec,
-        glove=glove, idf_lookup=idf_lookup, label="val",
-    )
+    train_X = build_features(TRAIN_FEATURES_PATH, train_df, idf, vec,
+                             glove=glove, idf_lookup=idf_lookup, label="train")
+    val_X = build_features(VAL_FEATURES_PATH, val_df, idf, vec,
+                           glove=glove, idf_lookup=idf_lookup, label="val")
 
-    print_summary({})
+    results = {}
+
+    lr_scorer, lr_em, lr_em_f1, lr_scores, lr_bin_acc, lr_bin_f1 = run_logistic_regression(
+        train_X, train_y, val_X, val_y, idf, vec)
+    results['Logistic Regression'] = {
+        'task': 'Answer Verif', 'em': lr_em, 'em_f1': lr_em_f1,
+        'binary_acc': lr_bin_acc, 'binary_f1': lr_bin_f1,
+    }
+
+    svm_scorer, svm_em, svm_em_f1, svm_scores, svm_bin_acc, svm_bin_f1 = run_linear_svm(
+        train_X, train_y, val_X, val_y, idf, vec)
+    results['Linear SVM'] = {
+        'task': 'Answer Verif', 'em': svm_em, 'em_f1': svm_em_f1,
+        'binary_acc': svm_bin_acc, 'binary_f1': svm_bin_f1,
+    }
+
+    rf_em, rf_em_f1, rf_scores, rf_bin_acc, rf_bin_f1, _rf_model = run_random_forest(
+        train_X, train_y, val_X, val_y)
+    results['Random Forest'] = {
+        'task': 'Answer Verif', 'em': rf_em, 'em_f1': rf_em_f1,
+        'binary_acc': rf_bin_acc, 'binary_f1': rf_bin_f1,
+    }
+
+    print_summary(results)
 
 
 if __name__ == "__main__":
