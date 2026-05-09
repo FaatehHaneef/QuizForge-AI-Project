@@ -910,6 +910,136 @@ def run_random_forest(train_X, train_y_raw, val_X, val_y,
     return em, em_f1, val_scores, binary_acc, binary_f1, model
 
 
+# ─── A3: Naive Bayes — Question Type Classification ──────────────────────────
+QUESTION_TYPE_PATTERNS = [
+    ('main_idea', [
+        r'\bmain idea\b', r'\bbest title\b', r'\bmain point\b',
+        r'\bprimarily about\b', r'\bmainly about\b', r'\bpurpose of\b',
+        r'\bbest summari[sz]e\b', r'\bbest describes\b',
+        r'\bwhat is the passage\b', r'\bwhat is this passage\b',
+    ]),
+    ('vocabulary', [
+        r'\bword\b.*\bmean(s|ing)?\b', r'\bphrase\b.*\bmean(s|ing)?\b',
+        r'\bunderlined word\b', r'\bunderlined phrase\b',
+        r'\brefers? to\b', r'\bclosest in meaning\b',
+        r'\bdefinition of\b', r'\bcould be replaced by\b',
+        r'\bthe word .* means\b',
+    ]),
+    ('inference', [
+        r'\bimpl(y|ies|ied)\b', r'\binfer(red)?\b', r'\bsuggest(s|ed)?\b',
+        r'\bprobably\b', r'\bmost likely\b',
+        r'\bauthor (thinks|believes|feels|implies)\b',
+        r'\bwriter (thinks|believes|feels|implies)\b',
+        r'\bwe can learn\b', r'\bwe can conclude\b',
+        r'\battitude\b', r'\btone\b',
+    ]),
+    ('detail', [
+        r'\baccording to\b', r'\bhow many\b', r'\bhow much\b', r'\bhow long\b',
+        r'\bwho\b', r'\bwhen\b', r'\bwhere\b',
+        r'\bwhat\b', r'\bwhich\b',
+    ]),
+]
+
+
+def label_question(text):
+    text = str(text).lower()
+    for label, patterns in QUESTION_TYPE_PATTERNS:
+        for pat in patterns:
+            if re.search(pat, text):
+                return label
+    return 'other'
+
+
+def run_naive_bayes(train_df, val_df):
+    print("\n" + "=" * 70)
+    print("A3  Naive Bayes  —  Question Type Classification")
+    print("=" * 70)
+
+    train_qtype = train_df['question'].fillna('').apply(label_question).values
+    val_qtype   = val_df['question'].fillna('').apply(label_question).values
+
+    print(f"\n  Train label distribution:")
+    for label, count in Counter(train_qtype).most_common():
+        print(f"    {label:<12} {count:>6}  ({count / len(train_qtype) * 100:5.1f}%)")
+
+    vec_nb = CountVectorizer(
+        lowercase=True, ngram_range=(1, 2),
+        min_df=2, max_df=0.95, stop_words=None,
+    )
+    X_train = vec_nb.fit_transform(train_df['question'].fillna('').astype(str))
+    X_val   = vec_nb.transform(val_df['question'].fillna('').astype(str))
+
+    nb = MultinomialNB(alpha=1.0)
+    nb.fit(X_train, train_qtype)
+    val_preds = nb.predict(X_val)
+    acc = accuracy_score(val_qtype, val_preds)
+    f1  = f1_score(val_qtype, val_preds, average='macro')
+
+    print(f"\n[NB] Final: acc = {acc * 100:.2f}%, macro-F1 = {f1:.4f}")
+    print(classification_report(val_qtype, val_preds, digits=4))
+
+    save_model(nb, MODEL_NB_PATH)
+    save_model(vec_nb, MODEL_NB_VEC_PATH)
+    return acc, f1
+
+
+# ─── A4: K-Means clustering ──────────────────────────────────────────────────
+def kmeans_features(p, q, o):
+    """30,008-dim aggregated feature for K-Means (passage|question|opts|overlaps)."""
+    p = p.astype(np.float32, copy=False)
+    q = q.astype(np.float32, copy=False)
+    o = o.astype(np.float32, copy=False)
+    base = np.hstack([p, q, o[:, 0, :], o[:, 1, :], o[:, 2, :], o[:, 3, :]])
+    overlaps_p = np.stack([(p * o[:, i, :]).sum(axis=1) for i in range(4)], axis=1)
+    overlaps_q = np.stack([(q * o[:, i, :]).sum(axis=1) for i in range(4)], axis=1)
+    return np.hstack([base, overlaps_p, overlaps_q])
+
+
+def run_kmeans(train_npz_path, val_npz_path, val_y):
+    print("\n" + "=" * 70)
+    print("A4  K-Means  —  Unsupervised Clustering")
+    print("=" * 70)
+
+    model = MiniBatchKMeans(
+        n_clusters=KMEANS_N, batch_size=BATCH_SIZE,
+        n_init=10, random_state=42, max_iter=300,
+    )
+
+    print("\n[K-Means] Streaming training data...")
+    data = np.load(train_npz_path, allow_pickle=True)
+    p, q, o = data['passages'], data['questions'], data['options']
+    N = p.shape[0]
+    for s in range(0, N, BATCH_SIZE):
+        e = min(s + BATCH_SIZE, N)
+        model.partial_fit(kmeans_features(p[s:e], q[s:e], o[s:e]))
+        if (s // BATCH_SIZE + 1) % 3 == 0:
+            print(f"  batch {s // BATCH_SIZE + 1} (inertia: {model.inertia_:.0f})")
+    print(f"\n[K-Means] Final inertia: {model.inertia_:.0f}")
+
+    # Predict val cluster assignments
+    print("\n[K-Means] Predicting on validation...")
+    data_v = np.load(val_npz_path, allow_pickle=True)
+    pv, qv, ov = data_v['passages'], data_v['questions'], data_v['options']
+    val_clusters = []
+    for s in range(0, pv.shape[0], BATCH_SIZE):
+        e = min(s + BATCH_SIZE, pv.shape[0])
+        val_clusters.extend(model.predict(kmeans_features(pv[s:e], qv[s:e], ov[s:e])))
+    val_clusters = np.array(val_clusters)
+
+    # Cluster purity
+    purity = 0
+    for c in range(KMEANS_N):
+        mask = (val_clusters == c)
+        if mask.sum() > 0:
+            purity += np.bincount(val_y[mask], minlength=4).max()
+    purity /= len(val_y)
+
+    print(f"\n[K-Means] Cluster purity: {purity * 100:.2f}%")
+
+    save_model(model, MODEL_KMEANS_PATH)
+    return purity
+
+
 # ─── Final summary ───────────────────────────────────────────────────────────
 def print_summary(results, generation=None):
     print("\n" + "=" * 92)
@@ -929,6 +1059,9 @@ def print_summary(results, generation=None):
                 bacc = f"{'—':>8}"
                 bf1  = f"{'—':>8}"
             print(f"{name:<30} {r['task']:<16} {em_str:>8} {f1_str}   {bacc} {bf1}")
+        elif 'purity' in r:
+            pur_str = f"{r['purity'] * 100:>7.2f}%"
+            print(f"{name:<30} {r['task']:<16} {pur_str:>8} {'—':>8}   {'—':>8} {'—':>8}")
     print("=" * 92 + "\n")
 
 
@@ -982,6 +1115,14 @@ def main():
         'task': 'Answer Verif', 'em': rf_em, 'em_f1': rf_em_f1,
         'binary_acc': rf_bin_acc, 'binary_f1': rf_bin_f1,
     }
+
+    nb_acc, nb_f1 = run_naive_bayes(train_df, val_df)
+    results['Naive Bayes'] = {
+        'task': 'Question Type', 'em': nb_acc, 'em_f1': nb_f1,
+    }
+
+    kmeans_purity = run_kmeans(TRAIN_FEATURES_PATH, VAL_FEATURES_PATH, val_y)
+    results['K-Means Clustering'] = {'task': 'Clustering', 'purity': kmeans_purity}
 
     print_summary(results)
 
