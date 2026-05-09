@@ -1,0 +1,45 @@
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Project artefacts (large or regenerable) ───────────────────────────────
+# Raw + processed datasets and engineered feature matrices: too large for git
+# and reproducible from the original RACE dataset and the preprocessing code.
+data/raw/
+data/processed/
+data/features/
+data/embeddings/
+
+# Trained model checkpoints: regenerable by re running model_a.py and
+# model_a_neural.py. Keeping them out of git keeps the repository light.
+models/*.pkl
+models/*.npz
+*.npy
+*.pt
+*.pth
+*.bin
+
+# ─── Editor and OS detritus ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Jupyter checkpoints ────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── Local environment overrides ────────────────────────────────────────────
+.env
+.env.local
