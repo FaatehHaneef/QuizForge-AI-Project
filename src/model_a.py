@@ -471,7 +471,6 @@ def load_glove():
         return None
     try:
         print("\n[GLOVE] Loading glove-wiki-gigaword-50 via gensim...")
-        print("  (first run downloads ~70 MB to ~/gensim-data/, then cached)")
         model = api.load("glove-wiki-gigaword-50")
         print(f"  loaded {len(model):,} word vectors of dim {model.vector_size}")
         return model

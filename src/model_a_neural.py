@@ -100,7 +100,6 @@ TRAIN_SUBSET       = 30_000   # subsample train to keep CPU runtime tractable
 def load_neural_model():
     """Load sentence-transformers model on CPU."""
     print(f"\n[NEURAL] Loading {EMBED_MODEL_NAME} (CPU)...")
-    print("  (first run downloads ~80 MB to ~/.cache/torch/sentence_transformers/)")
     model = SentenceTransformer(EMBED_MODEL_NAME, device='cpu')
     print(f"  ✓ Loaded — embedding dim = {model.get_sentence_embedding_dimension()}")
     return model
