@@ -1,6 +1,6 @@
 """
-Utility functions for QuizForge project.
-Shared helpers for loading data, saving models, and inference.
+Utility functions for QuizForge project
+Shared helpers for loading data, saving models, and inference
 """
 
 import numpy as np
