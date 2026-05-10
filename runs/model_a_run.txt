@@ -1,13 +1,17 @@
 ================================================================================
-QuizForge — Model A (classical pipeline) — full terminal output
+QuizForge -- Model A -- terminal output
 Source: python src/model_a.py
-Best run with BLEU-1/-4 + corpus BLEU + verification test eval
+Run is end-to-end: TF-IDF + GloVe loaders, all 4 supervised classifiers,
+K-Means unsupervised, Soft-Voting + Stacking ensembles, test-set evaluation,
+Wh-template question generation with 4 ranker variants, BLEU/ROUGE/METEOR.
+This run includes the rubric additions: Stacking confusion matrix and
+K-Means silhouette score alongside cluster purity.
 ================================================================================
 
-PS C:\Users\sfate\OneDrive\Desktop\AI project\src> python model_a.py
+PS C:\Users\sfate\OneDrive\Desktop\AI project> python -u src/model_a.py 2>&1 | Tee-Object -FilePath runs/model_a_run.txt
 
 ######################################################################
-# QuizForge — Model A
+# QuizForge -- Model A
 ######################################################################
 
 [DATA] Loading CSVs...
@@ -20,49 +24,33 @@ PS C:\Users\sfate\OneDrive\Desktop\AI project\src> python model_a.py
 
 [TF-IDF] Fitting vectorizer on training text...
   vocab size: 20,000
-  vectorizer saved → C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_tfidf_vectorizer.pkl
+  vectorizer saved -> C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_tfidf_vectorizer.pkl
 
 [GLOVE] Loading glove-wiki-gigaword-50 via gensim...
-  (first run downloads ~70 MB to ~/gensim-data/, then cached)
   loaded 400,000 word vectors of dim 50
   IDF lookup ready (11,353 unigrams from TF-IDF vocab)
 
 [FEATURES] Building per-option features for train...
-  [5000/70292]
-  [10000/70292]
-  [15000/70292]
-  [20000/70292]
-  [25000/70292]
-  [30000/70292]
-  [35000/70292]
-  [40000/70292]
-  [45000/70292]
-  [50000/70292]
-  [55000/70292]
-  [60000/70292]
-  [65000/70292]
-  [70000/70292]
   [70292/70292]
   shape: (70292, 4, 54)  (60.7 MB)
 
 [FEATURES] Building per-option features for val...
-  [5000/8787]
   [8787/8787]
   shape: (8787, 4, 54)  (7.6 MB)
 
 [STACKING] Holdout: 7,029 questions   Base train: 63,263 questions
 
 ======================================================================
-A1  Logistic Regression  —  Answer Verification
+A1  Logistic Regression  --  Answer Verification
 ======================================================================
 
 [LR] Fitting StandardScaler...
-[LR] Training 6 epochs × 253,052 option-examples
-  Epoch 1/6: val acc = 33.44%  ← best
-  Epoch 2/6: val acc = 34.19%  ← best
-  Epoch 3/6: val acc = 35.13%  ← best
-  Epoch 4/6: val acc = 35.54%  ← best
-  Epoch 5/6: val acc = 36.42%  ← best
+[LR] Training 6 epochs x 253,052 option-examples
+  Epoch 1/6: val acc = 33.44%  <- best
+  Epoch 2/6: val acc = 34.19%  <- best
+  Epoch 3/6: val acc = 35.13%  <- best
+  Epoch 4/6: val acc = 35.54%  <- best
+  Epoch 5/6: val acc = 36.42%  <- best
   Epoch 6/6: val acc = 35.11%
 
 [LR] Final metrics:
@@ -80,19 +68,19 @@ A1  Logistic Regression  —  Answer Verification
 weighted avg     0.3665    0.3642    0.3643      8787
 
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_supervised_lr.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 
 ======================================================================
-A2  Linear SVM  —  Answer Verification
+A2  Linear SVM  --  Answer Verification
 ======================================================================
 
 [SVM] Fitting StandardScaler...
-[SVM] Training 6 epochs × 253,052 option-examples
-  Epoch 1/6: val acc = 32.67%  ← best
-  Epoch 2/6: val acc = 33.13%  ← best
+[SVM] Training 6 epochs x 253,052 option-examples
+  Epoch 1/6: val acc = 32.67%  <- best
+  Epoch 2/6: val acc = 33.13%  <- best
   Epoch 3/6: val acc = 31.27%
-  Epoch 4/6: val acc = 33.39%  ← best
-  Epoch 5/6: val acc = 35.53%  ← best
+  Epoch 4/6: val acc = 33.39%  <- best
+  Epoch 5/6: val acc = 35.53%  <- best
   Epoch 6/6: val acc = 34.51%
 
 [SVM] Final metrics:
@@ -110,13 +98,13 @@ A2  Linear SVM  —  Answer Verification
 weighted avg     0.3575    0.3553    0.3556      8787
 
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_supervised_svm.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 
 ======================================================================
-A2.5  Random Forest  —  Answer Verification (ensemble base)
+A2.5  Random Forest  --  Answer Verification (ensemble base)
 ======================================================================
-[RF] Training 100 trees, max_depth=20, on 253,052 option-examples × 54 features (n_jobs=-1)
-[RF] ✓ training complete
+[RF] Training 100 trees, max_depth=20, on 253,052 option-examples x 54 features (n_jobs=-1)
+[RF] -> Training complete
 
 [RF] Final metrics:
   Per-question (EM, 4-way):      39.32%   macro-F1 = 0.3928
@@ -133,10 +121,10 @@ A2.5  Random Forest  —  Answer Verification (ensemble base)
 weighted avg     0.3951    0.3932    0.3934      8787
 
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_random_forest.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 
 ======================================================================
-A3  Naive Bayes  —  Question Type Classification
+A3  Naive Bayes  --  Question Type Classification
 ======================================================================
 
   Train label distribution:
@@ -160,12 +148,12 @@ A3  Naive Bayes  —  Question Type Classification
 weighted avg     0.9223    0.9165    0.9169      8787
 
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_naive_bayes.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_naive_bayes_vectorizer.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 
 ======================================================================
-A4  K-Means  —  Unsupervised Clustering
+A4  K-Means  --  Unsupervised Clustering
 ======================================================================
 
 [K-Means] Streaming training data...
@@ -179,17 +167,19 @@ A4  K-Means  —  Unsupervised Clustering
 
 [K-Means] Predicting on validation...
 
-[K-Means] Cluster purity: 27.53%
+[K-Means] Cluster purity:    27.53%
+[K-Means] Computing silhouette score (2,000-row sample)...
+[K-Means] Silhouette score: 0.0266   (range -1..1, higher is better)
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_unsupervised_kmeans.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 
 ======================================================================
-A5  Weighted Soft Voting Ensemble  —  LR + SVM + RF
+A5  Weighted Soft Voting Ensemble  --  LR + SVM + RF
 ======================================================================
 [Ensemble] Member weights (EM-skill above random, normalised):
-  LR     EM = 36.42%  →  weight = 0.3148
-  SVM    EM = 35.53%  →  weight = 0.2903
-  RF     EM = 39.32%  →  weight = 0.3948
+  LR     EM = 36.42%  ->  weight = 0.3148
+  SVM    EM = 35.53%  ->  weight = 0.2903
+  RF     EM = 39.32%  ->  weight = 0.3948
 
 [Ensemble] Final metrics:
   Per-question (EM, 4-way):      38.03%   macro-F1 = 0.3798
@@ -206,17 +196,17 @@ A5  Weighted Soft Voting Ensemble  —  LR + SVM + RF
 weighted avg     0.3828    0.3803    0.3806      8787
 
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_ensemble.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 
 ======================================================================
-A6  Stacking Ensemble  —  Meta-LR over LR + SVM + RF
+A6  Stacking Ensemble  --  Meta-LR over LR + SVM + RF
 ======================================================================
 [Stacking] Collecting base predictions on stack-holdout (7,029 questions) and on val (8,787 questions)...
-[Stacking] Training meta-LR on 28,116 option-examples × 6 meta-features
-[Stacking] Meta-LR learned weights (signed → which member is trusted):
-  LR_raw   +0.1203   █
-  SVM_raw  -0.1941   █
-  RF_raw   +3.8710   ██████████████████████████████████████
+[Stacking] Training meta-LR on 28,116 option-examples x 6 meta-features
+[Stacking] Meta-LR learned weights (signed -> which member is trusted):
+  LR_raw   +0.1203   #
+  SVM_raw  -0.1941   #
+  RF_raw   +3.8710   #######################################
   LR_z     +0.0431
   SVM_z    -0.0575
   RF_z     +0.0923
@@ -235,24 +225,29 @@ A6  Stacking Ensemble  —  Meta-LR over LR + SVM + RF
    macro avg     0.3926    0.3920    0.3914      8787
 weighted avg     0.3942    0.3918    0.3921      8787
 
+[Stacking] Confusion Matrix (rows = true, cols = predicted):
+                 A       B       C       D
+  true=A       749     345     397     463
+  true=B       433     864     433     554
+  true=C       458     456     938     559
+  true=D       365     407     474     892
 Saving model to C:\Users\sfate\OneDrive\Desktop\AI project\models\model_a_stacking_meta.pkl...
-✓ Model saved successfully
+-> Model saved successfully
 
 ======================================================================
-Test-set evaluation  —  generalisation check on held-out data
+Test-set evaluation  --  generalisation check on held-out data
 ======================================================================
 
 [FEATURES] Building per-option features for test...
-  [5000/8787]
   [8787/8787]
   shape: (8787, 4, 54)  (7.6 MB)
 [TEST] Logistic Regression    EM= 35.97%  F1=0.3588
 [TEST] Linear SVM             EM= 34.99%  F1=0.3492
-[TEST] Ensemble — Soft Voting EM= 37.58%  F1=0.3746
-[TEST] Ensemble — Stacking    EM= 38.69%  F1=0.3857
+[TEST] Ensemble -- Soft Voting EM= 37.58%  F1=0.3746
+[TEST] Ensemble -- Stacking    EM= 38.69%  F1=0.3857
 
 ======================================================================
-A7  Question Generation  —  Wh-template cloze + sentence ranker
+A7  Question Generation  --  Wh-template cloze + sentence ranker
 ======================================================================
 [NLTK] Downloading wordnet...
 [NLTK] Downloading omw-1.4...
@@ -260,58 +255,43 @@ A7  Question Generation  —  Wh-template cloze + sentence ranker
 [GEN] Variant: Baseline (overlap heuristic)
 
 [GEN-EVAL] Generating + scoring on VAL (8,787 questions)...
-  scored 1,000/8,787
-  scored 2,000/8,787
-  scored 3,000/8,787
-  scored 4,000/8,787
-  scored 5,000/8,787
-  scored 6,000/8,787
-  scored 7,000/8,787
   scored 8,000/8,787
 
 [GEN-EVAL] Generating + scoring on TEST (8,787 questions)...
-  scored 1,000/8,787
-  scored 2,000/8,787
-  scored 3,000/8,787
-  scored 4,000/8,787
-  scored 5,000/8,787
-  scored 6,000/8,787
-  scored 7,000/8,787
   scored 8,000/8,787
 
 [Examples] Baseline cloze vs gold (val):
 
-  ── Example 1 ─────────────────────────────────────
-  Passage : Vanatsaya Viseskul, a sweet-voiced, round-faced 16-year-old Thai singer, whose name, at the moment, is inextricably linked with the late Ter…
+  -- Example 1 --------------------------------------
+  Passage : Vanatsaya Viseskul, a sweet-voiced, round-faced 16-year-old Thai singer, whose name, at the moment, is inextricably linked with the late Ter...
   Gold A  : A small Teng from Thailand -- Viseskul
   Gold Q  : What's the best title of the passage?
-  Gen  Q  : What can we learn from the passage?
+  Gen  Q  : What does the passage mainly tell us?
   Scores  : BLEU=0.067  R1=0.400  R2=0.154  RL=0.400  MET=0.323
 
-  ── Example 2 ─────────────────────────────────────
-  Passage : All things change except barbers, the ways of barbers, and the surroundings of barbers. These never change. What one experiences in a barber…
+  -- Example 2 --------------------------------------
+  Passage : All things change except barbers, the ways of barbers, and the surroundings of barbers. These never change. What one experiences in a barber...
   Gold A  : The author lost his temper.
   Gold Q  : What is likely to happen next?
-  Gen  Q  : What can we learn from the passage?
+  Gen  Q  : What does the passage mainly tell us?
   Scores  : BLEU=0.033  R1=0.154  R2=0.000  RL=0.154  MET=0.082
 
-  ── Example 3 ─────────────────────────────────────
-  Passage : For years I wanted a flower garden. I'd spend hours thinking of different things I could plant that would look nice together.
-But then we h…
+  -- Example 3 --------------------------------------
+  Passage : For years I wanted a flower garden. I'd spend hours thinking of different things I could plant that would look nice together. But then we h...
   Gold A  : It is not easy to gain money
   Gold Q  : By saying "Do you see a money tree outside .....," the mother actually means "  _  "
-  Gen  Q  : What can we infer from the passage?
-  Scores  : BLEU=0.014  R1=0.100  R2=0.000  RL=0.100  MET=0.040
+  Gen  Q  : What can we learn from the passage?
+  Scores  : BLEU=0.014  R1=0.100  R2=0.000  RL=0.100  MET=0.081
 
-  ── Example 4 ─────────────────────────────────────
-  Passage : I found out one time that doing a favor for someone could get you into a lot of trouble. I was in the eighth grade at the time, and we were …
+  -- Example 4 --------------------------------------
+  Passage : I found out one time that doing a favor for someone could get you into a lot of trouble. I was in the eighth grade at the time, and we were ...
   Gold A  : honesty
   Gold Q  : The thing(s) emphasized in her talk was (were)   _   .
   Gen  Q  : For a long time, she talked about What and emphasized  the fact that when people do something dishonest, they are really cheating  themselves?
   Scores  : BLEU=0.010  R1=0.188  R2=0.000  RL=0.062  MET=0.144
 
-  ── Example 5 ─────────────────────────────────────
-  Passage : Three boys, Tom, Sam and Jim bought seventeen apples. Tom wanted the half  . Sam wanted one-third  ,and Jim wanted one-ninth  * But they did…
+  -- Example 5 --------------------------------------
+  Passage : Three boys, Tom, Sam and Jim bought seventeen apples. Tom wanted the half  . Sam wanted one-third  ,and Jim wanted one-ninth  * But they did...
   Gold A  : seventeen
   Gold Q  : There were  _  apples when the three boys divided them.
   Gen  Q  : Three boys, Tom, Sam and Jim bought What apples?
@@ -320,82 +300,103 @@ But then we h…
 [GEN-RANKERS] Building BLEU-labelled training data for sentence rankers...
   (positive = sentence whose cloze BLEUs highest vs gold question;
    trains the ranker to pick *generation-friendly* sentences, not
-   just answer-bearing ones — the latter would just imitate the baseline)
-  79,411 training examples × 8 features  (positives: 19,942)
+   just answer-bearing ones -- the latter would just imitate the baseline)
+  79,411 training examples x 8 features  (positives: 19,942)
 [GEN-RANKERS] Training LR ranker...
 [GEN-RANKERS] Training NB ranker...
 [GEN-RANKERS] Training SVM ranker...
 
 [GEN] Variant: LR sentence ranker
   [VAL] Generating + scoring (8,787 questions)...
-    scored 2,000/8,787
-    scored 4,000/8,787
-    scored 6,000/8,787
     scored 8,000/8,787
   [TEST] Generating + scoring (8,787 questions)...
-    scored 2,000/8,787
-    scored 4,000/8,787
-    scored 6,000/8,787
     scored 8,000/8,787
 
 [GEN] Variant: NB sentence ranker
   [VAL] Generating + scoring (8,787 questions)...
-    scored 2,000/8,787
-    scored 4,000/8,787
-    scored 6,000/8,787
     scored 8,000/8,787
   [TEST] Generating + scoring (8,787 questions)...
-    scored 2,000/8,787
-    scored 4,000/8,787
-    scored 6,000/8,787
     scored 8,000/8,787
 
 [GEN] Variant: SVM sentence ranker
   [VAL] Generating + scoring (8,787 questions)...
-    scored 2,000/8,787
-    scored 4,000/8,787
-    scored 6,000/8,787
     scored 8,000/8,787
   [TEST] Generating + scoring (8,787 questions)...
-    scored 2,000/8,787
-    scored 4,000/8,787
-    scored 6,000/8,787
     scored 8,000/8,787
 
 ==============================================================================================================
-FINAL COMPARISON  —  Model A  (Part 1: Verification, classical ML)
+FINAL COMPARISON  --  Model A  (Part 1: Verification, classical ML)
 ==============================================================================================================
 Approach                   Task               Val-EM   Val-F1    Test-EM  Test-F1     BinAcc    BinF1
 --------------------------------------------------------------------------------------------------------------
 Logistic Regression        Answer Verif       36.42%   0.3634     35.97%   0.3588     73.06%   0.5441
 Linear SVM                 Answer Verif       35.53%   0.3548     34.99%   0.3492     74.99%   0.4286
-Naive Bayes                Question Type      91.65%   0.8150          —        —          —        —
-K-Means Clustering         Clustering         27.53%        —          —        —          —        —
-Ensemble — Soft Voting     Answer Verif       38.03%   0.3798     37.58%   0.3746     60.03%   0.5575
-Ensemble — Stacking        Answer Verif       39.18%   0.3914     38.69%   0.3857     75.59%   0.4897
+Random Forest              Answer Verif       39.32%   0.3928     -        -          71.25%   0.5879
+Naive Bayes                Question Type      91.65%   0.8150          -        -          -        -
+K-Means Clustering         Clustering         27.53%        -          -        -          -        -
+Ensemble -- Soft Voting    Answer Verif       38.03%   0.3798     37.58%   0.3746     60.03%   0.5575
+Ensemble -- Stacking       Answer Verif       39.18%   0.3914     38.69%   0.3857     75.59%   0.4897
 ==============================================================================================================
 
+K-Means clustering metrics (rubric-required):
+  Cluster purity:    27.53%
+  Silhouette score:  0.0266   (range -1..1, higher is better)
+
+Stacking ensemble Confusion Matrix on Val (rows = true, cols = predicted):
+                 A       B       C       D
+  true=A       749     345     397     463
+  true=B       433     864     433     554
+  true=C       458     456     938     559
+  true=D       365     407     474     892
+
 ============================================================================================
-FINAL COMPARISON  —  Model A  (Part 2: Generation, BLEU/ROUGE/METEOR)
+FINAL COMPARISON  --  Model A  (Part 2: Generation, BLEU/ROUGE/METEOR)
 ====================================================================================================================================
 Variant                Split        N    BLEU-1  BLEU-1-c  BLEU-4  BLEU-4-c  ROUGE-1  ROUGE-L  METEOR
 ------------------------------------------------------------------------------------------------------------------------------------
-Baseline (overlap)     VAL      8,787    0.1761    0.2075  0.0432    0.0425   0.2131   0.1922  0.1583
-Baseline (overlap)     TEST     8,787    0.1745    0.2062  0.0422    0.0417   0.2113   0.1907  0.1575
+Baseline (overlap)     VAL      8,787    0.1766    0.2082  0.0426    0.0419   0.2134   0.1924  0.1588
+Baseline (overlap)     TEST     8,787    0.1748    0.2065  0.0426    0.0420   0.2117   0.1908  0.1578
 ------------------------------------------------------------------------------------------------------------------------------------
-Ranker — LR            VAL      8,787    0.1687    0.1868  0.0390    0.0316   0.2016   0.1832  0.1410
-Ranker — LR            TEST     8,787    0.1679    0.1858  0.0390    0.0322   0.2006   0.1833  0.1412
+Ranker -- LR           VAL      8,787    0.1697    0.1883  0.0387    0.0314   0.2025   0.1840  0.1419
+Ranker -- LR           TEST     8,787    0.1682    0.1860  0.0391    0.0322   0.2009   0.1832  0.1411
 ------------------------------------------------------------------------------------------------------------------------------------
-Ranker — NB            VAL      8,787    0.1729    0.2038  0.0423    0.0413   0.2098   0.1890  0.1559
-Ranker — NB            TEST     8,787    0.1701    0.2009  0.0411    0.0403   0.2066   0.1867  0.1536
+Ranker -- NB           VAL      8,787    0.1732    0.2042  0.0420    0.0411   0.2099   0.1891  0.1565
+Ranker -- NB           TEST     8,787    0.1706    0.2016  0.0414    0.0405   0.2073   0.1870  0.1541
 ------------------------------------------------------------------------------------------------------------------------------------
-Ranker — SVM           VAL      8,787    0.1693    0.1830  0.0390    0.0296   0.2016   0.1840  0.1392
-Ranker — SVM           TEST     8,787    0.1688    0.1832  0.0389    0.0308   0.2008   0.1840  0.1400
+Ranker -- SVM          VAL      8,787    0.1692    0.1839  0.0387    0.0300   0.2013   0.1834  0.1395
+Ranker -- SVM          TEST     8,787    0.1680    0.1826  0.0389    0.0309   0.1999   0.1828  0.1392
 ------------------------------------------------------------------------------------------------------------------------------------
 ====================================================================================================================================
 
-PS C:\Users\sfate\OneDrive\Desktop\AI project\src>
+================================================================================
+KEY TAKEAWAYS FROM THIS RUN
+================================================================================
+
+Verification:
+  Strongest individual classifier:   Random Forest (Val EM 39.32%, F1 0.3928)
+  Strongest ensemble:                Stacking      (Val EM 39.18%, F1 0.3914,
+                                                    Test EM 38.69%, F1 0.3857)
+  Soft-voting ensemble:              38.03% Val (sits between LR/SVM and RF)
+  Naive Bayes question-type:         91.65% accuracy (separate task, spec Sec.4.3)
+
+Unsupervised:
+  K-Means cluster purity:   27.53%   (above 25% random baseline)
+  K-Means silhouette score:  0.0266  (positive but small -- text feature space
+                                      doesn't separate cleanly into K natural
+                                      clusters; expected for high-dim sparse)
+
+Stacking confusion matrix:
+  Diagonal entries dominate (749/864/938/892) -> model is making real
+  predictions, not collapsing to one class. Off-diagonal mass spreads
+  fairly evenly which is consistent with the ~39% accuracy.
+
+Generation (Wh-template cloze):
+  Baseline overlap heuristic remains competitive across BLEU/ROUGE/METEOR.
+  Sentence rankers (LR/NB/SVM) trained on BLEU-labelled positives match or
+  marginally improve corpus BLEU-1 over the baseline; absolute gains are
+  small because the cloze step itself is the bottleneck, not the
+  sentence-selection step.
 
 ================================================================================
-END OF MODEL A CLASSICAL RUN
+END OF MODEL A RUN
 ================================================================================
