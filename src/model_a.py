@@ -1,32 +1,32 @@
 """
-Model A — Consolidated Implementation (single-file orchestrator)
+Model A -- Consolidated Implementation (single-file orchestrator)
 
 Runs every Model A approach the project requires, on a *single load of data*,
 and prints one comparison table at the end.
 
 What runs (in order):
-  A1  Logistic Regression       — answer verification, per-option scoring
-  A2  Linear SVM                — answer verification, per-option scoring
-  A3  Naive Bayes               — question type classification (per spec §4.3)
-  A4  K-Means                   — unsupervised clustering (per spec §4.2.2)
-  A5  Soft Voting Ensemble      — average of LR + SVM, argmax (per spec §4.4)
+  A1  Logistic Regression       -- answer verification, per-option scoring
+  A2  Linear SVM                -- answer verification, per-option scoring
+  A3  Naive Bayes               -- question type classification (per spec Sec.4.3)
+  A4  K-Means                   -- unsupervised clustering (per spec Sec.4.2.2)
+  A5  Soft Voting Ensemble      -- average of LR + SVM, argmax (per spec Sec.4.4)
 
 Why one file
 ------------
 - Loads CSVs and the one-hot .npz once, builds features once, then runs all
-  five approaches on the cached tensors — no redundant disk I/O.
+  five approaches on the cached tensors -- no redundant disk I/O.
 - Comparable apples-to-apples: LR/SVM/Ensemble use identical feature input,
   K-Means uses the same one-hot data, NB uses the question text.
-- One end-of-run summary table reports accuracy + macro-F1 (per spec §4.5).
+- One end-of-run summary table reports accuracy + macro-F1 (per spec Sec.4.5).
 
-Feature engineering — pushing the classical-ML ceiling
+Feature engineering -- pushing the classical-ML ceiling
 ------------------------------------------------------
 Per option (~38 features):
   22  one-hot/IDF lexical overlaps + comparative rank features    (existing)
   8   TF-IDF cosine: passage, question, comparatives, divergence  (existing)
   4   sentence-level TF-IDF cosine: max + top3-mean + comparatives (NEW)
   3   length: option chars, log, vs-others-max                     (NEW)
-  1   numeric token match passage∩option                           (NEW)
+  1   numeric token match passage&option                           (NEW)
 
 Sentence-level matching is the single biggest classical lift on RACE-style
 MCQA: instead of comparing each option to the *whole* passage (where signal
@@ -38,8 +38,8 @@ Realistic accuracy targets:
   Random:                                          25%
   Old concat formulation (broken):                 29%
   Per-option with 30 features (one-hot + TF-IDF):  34%
-  Per-option with 38 features (this file):        ~38–43%   ← target
-  + GloVe embeddings (optional, see notes):       ~45–55%
+  Per-option with 38 features (this file):        ~38-43%   <- target
+  + GloVe embeddings (optional, see notes):       ~45-55%
 
 CPU-only, classical ML. No neural networks.
 Usage: python src/model_a.py
@@ -59,7 +59,10 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-from sklearn.metrics import accuracy_score, classification_report, f1_score
+from sklearn.metrics import (
+    accuracy_score, classification_report, f1_score,
+    confusion_matrix, silhouette_score,
+)
 import warnings
 
 # Optional libraries for Part 2 (text-generation evaluation: BLEU/ROUGE/METEOR).
@@ -93,7 +96,7 @@ from config import (
 from utils import save_model
 
 
-# ─── Hyperparams ──────────────────────────────────────────────────────────────
+# --- Hyperparams --------------------------------------------------------------
 BATCH_SIZE   = 5000
 N_EPOCHS     = 6
 EPS          = 1e-6
@@ -108,19 +111,19 @@ MODEL_STACKING_PATH = os.path.join(MODELS_DIR, "model_a_stacking_meta.pkl")
 TFIDF_VEC_PATH     = os.path.join(MODELS_DIR, "model_a_tfidf_vectorizer.pkl")
 
 
-# ─── Shared helpers ───────────────────────────────────────────────────────────
+# --- Shared helpers -----------------------------------------------------------
 SENT_SPLIT = re.compile(r'(?<=[.!?])\s+')
 NUM_RE     = re.compile(r'\d+')
 
 
 def split_sentences(text):
-    """Regex-based sentence splitter — no NLTK dependency."""
+    """Regex-based sentence splitter -- no NLTK dependency."""
     return [s.strip() for s in SENT_SPLIT.split(str(text)) if s.strip()]
 
 
 def vs_others(arr):
     """
-    Comparative features within a (N, 4) group: arr−max_other, arr−mean_other,
+    Comparative features within a (N, 4) group: arr-max_other, arr-mean_other,
     is_argmax. Length-invariant rank-within-question signal.
     """
     max_other  = np.zeros_like(arr)
@@ -134,7 +137,7 @@ def vs_others(arr):
 
 
 def row_cosine(A, B):
-    """Row-wise cosine for two sparse matrices of equal shape (N, V) → (N,)."""
+    """Row-wise cosine for two sparse matrices of equal shape (N, V) -> (N,)."""
     a_norm = np.sqrt(np.asarray(A.multiply(A).sum(axis=1)).ravel())
     b_norm = np.sqrt(np.asarray(B.multiply(B).sum(axis=1)).ravel())
     dot    = np.asarray(A.multiply(B).sum(axis=1)).ravel()
@@ -142,13 +145,13 @@ def row_cosine(A, B):
 
 
 def normalize_per_question(scores):
-    """Z-score 4 option scores within each question — used for ensembling."""
+    """Z-score 4 option scores within each question -- used for ensembling."""
     mean = scores.mean(axis=1, keepdims=True)
     std  = scores.std(axis=1, keepdims=True) + 1e-9
     return (scores - mean) / std
 
 
-# ─── Data loading ─────────────────────────────────────────────────────────────
+# --- Data loading -------------------------------------------------------------
 def load_data():
     print("\n[DATA] Loading CSVs...")
     train_df = pd.read_csv(TRAIN_CSV_PATH)
@@ -160,7 +163,7 @@ def load_data():
     return train_df, val_df, train_y, val_y
 
 
-# ─── IDF over the one-hot training corpus ────────────────────────────────────
+# --- IDF over the one-hot training corpus ------------------------------------
 def compute_idf(features_path):
     data = np.load(features_path, allow_pickle=True)
     p, q, o = data['passages'], data['questions'], data['options']
@@ -171,7 +174,7 @@ def compute_idf(features_path):
     return (np.log((n_docs + 1) / (df_count + 1)) + 1).astype(np.float32)
 
 
-# ─── TF-IDF vectorizer ────────────────────────────────────────────────────────
+# --- TF-IDF vectorizer --------------------------------------------------------
 def fit_tfidf_vectorizer(csv_path):
     print("\n[TF-IDF] Fitting vectorizer on training text...")
     df = pd.read_csv(csv_path)
@@ -195,7 +198,7 @@ def fit_tfidf_vectorizer(csv_path):
     return vec
 
 
-# ─── Feature builders ─────────────────────────────────────────────────────────
+# --- Feature builders ---------------------------------------------------------
 def onehot_features(passages, questions, options, idf):
     """22 features per option from one-hot indicators + IDF."""
     passages  = passages.astype(np.float32, copy=False)
@@ -281,13 +284,13 @@ def tfidf_features(df_chunk, vec):
 def sentence_features(df_chunk, vec):
     """
     4 sentence-level features per option:
-      s_max         — max cosine over passage sentences (the answer-bearing
+      s_max         -- max cosine over passage sentences (the answer-bearing
                       sentence usually scores high; whole-passage cosine
                       averages this signal away)
-      s_top3_mean   — mean of top-3 sentence cosines (answers spanning
+      s_top3_mean   -- mean of top-3 sentence cosines (answers spanning
                       multiple sentences)
-      s_max_diff    — s_max minus max-of-other-options' s_max
-      s_top3_diff   — s_top3_mean minus max-of-other-options' s_top3_mean
+      s_max_diff    -- s_max minus max-of-other-options' s_max
+      s_top3_diff   -- s_top3_mean minus max-of-other-options' s_top3_mean
     """
     arts = df_chunk['article'].fillna('').astype(str).tolist()
     opts = [df_chunk[c].fillna('').astype(str).tolist() for c in ['A', 'B', 'C', 'D']]
@@ -344,16 +347,16 @@ def sentence_features(df_chunk, vec):
 
 def question_aware_features(df_chunk, vec, top_k=3):
     """
-    Question-conditioned passage attention — the missing classical-ML signal.
+    Question-conditioned passage attention -- the missing classical-ML signal.
 
     For each question, instead of comparing options to the whole passage:
       1. Find the top-K passage sentences most similar to the question
          (the "answer-bearing region")
       2. Aggregate those sentences into a single TF-IDF vector
-      3. Compute option↔region cosine
+      3. Compute option<->region cosine
     Then we know the option matches the *relevant* part of the passage,
     not just any part. Whole-passage cosine averages over 15-20 sentences
-    and drowns the actual signal — this filters first, matches second.
+    and drowns the actual signal -- this filters first, matches second.
 
     Returns 3 features per option: qa_cos, qa_diff_max, qa_argmax.
     """
@@ -400,7 +403,7 @@ def question_aware_features(df_chunk, vec, top_k=3):
         # 2. Aggregate top-k sentences as the answer-bearing region
         k = min(top_k, len(q_sent_cos))
         top_idx = np.argsort(q_sent_cos)[-k:]
-        # Sum the sparse rows → numpy.matrix → flatten to 1-D ndarray
+        # Sum the sparse rows -> numpy.matrix -> flatten to 1-D ndarray
         relevant_arr  = np.asarray(sv[top_idx].sum(axis=0)).ravel()
         relevant_norm = np.sqrt((relevant_arr ** 2).sum())
         if relevant_norm < 1e-9:
@@ -450,14 +453,14 @@ def numeric_features(df_chunk):
     return num_match[..., None]
 
 
-# ─── GloVe semantic features (optional, per spec §5.4 / §7.1) ───────────────
+# --- GloVe semantic features (optional, per spec Sec.5.4 / Sec.7.1) ---------------
 def load_glove():
     """
     Load GloVe word vectors via gensim.downloader. Returns None if unavailable.
 
-    Spec §5.4 explicitly allows pretrained Word2Vec features; §7.1 lists
+    Spec Sec.5.4 explicitly allows pretrained Word2Vec features; Sec.7.1 lists
     Gensim and sentence-transformers in the recommended stack. GloVe is the
-    same class of static pretrained lookup table — both are "embed each word
+    same class of static pretrained lookup table -- both are "embed each word
     as a fixed vector" with no neural-network training at our end.
 
     The 50-dim glove-wiki-gigaword model is ~70 MB; gensim auto-downloads it
@@ -466,7 +469,7 @@ def load_glove():
     try:
         import gensim.downloader as api
     except ImportError:
-        print("\n[GLOVE] gensim not installed — semantic features disabled.")
+        print("\n[GLOVE] gensim not installed -- semantic features disabled.")
         print("  To enable: pip install gensim")
         return None
     try:
@@ -484,7 +487,7 @@ _TOK_RE = re.compile(r'\b[a-z]+\b')
 
 
 def build_idf_lookup(vec):
-    """word → IDF mapping from a fitted TfidfVectorizer (unigrams only)."""
+    """word -> IDF mapping from a fitted TfidfVectorizer (unigrams only)."""
     return {
         term: float(vec.idf_[idx])
         for term, idx in vec.vocabulary_.items()
@@ -520,15 +523,15 @@ def _l2_norm_rows(X):
 def glove_features(df_chunk, glove, idf_lookup=None):
     """
     6 GloVe semantic-similarity features per option. Catches paraphrase and
-    synonym overlap that lexical TF-IDF misses (e.g. "automobile" ≈ "car",
-    "purchased" ≈ "bought") — the gap between ~34% and ~50% on RACE.
+    synonym overlap that lexical TF-IDF misses (e.g. "automobile" ~ "car",
+    "purchased" ~ "bought") -- the gap between ~34% and ~50% on RACE.
 
-      p_cos       — cosine(mean_glove(passage),  mean_glove(option))
-      q_cos       — cosine(mean_glove(question), mean_glove(option))
-      p_diff_max  — p_cos minus max-of-other-options' p_cos
-      p_argmax    — binary flag: this option wins on p_cos
-      q_diff_max  — q_cos minus max-of-other-options' q_cos
-      q_argmax    — binary flag: this option wins on q_cos
+      p_cos       -- cosine(mean_glove(passage),  mean_glove(option))
+      q_cos       -- cosine(mean_glove(question), mean_glove(option))
+      p_diff_max  -- p_cos minus max-of-other-options' p_cos
+      p_argmax    -- binary flag: this option wins on p_cos
+      q_diff_max  -- q_cos minus max-of-other-options' q_cos
+      q_argmax    -- binary flag: this option wins on q_cos
     """
     dim = glove.vector_size
     arts = df_chunk['article'].fillna('').astype(str).tolist()
@@ -562,11 +565,11 @@ def glove_features(df_chunk, glove, idf_lookup=None):
 def glove_sentence_features(df_chunk, glove, idf_lookup=None):
     """
     4 sentence-level GloVe features per option:
-      s_max         — max cosine over passage sentences in GloVe space
+      s_max         -- max cosine over passage sentences in GloVe space
                       (the answer-bearing sentence usually scores high)
-      s_top3_mean   — mean of top-3 sentence cosines
-      s_max_diff    — comparative vs other options
-      s_max_argmax  — binary flag: this option wins on sentence-max
+      s_top3_mean   -- mean of top-3 sentence cosines
+      s_max_diff    -- comparative vs other options
+      s_max_argmax  -- binary flag: this option wins on sentence-max
     Sentence-level GloVe is sharper than whole-passage GloVe because a
     15-word sentence-mean preserves topical signal that a 300-word
     passage-mean averages away.
@@ -693,7 +696,7 @@ def build_features(npz_path, df, idf, vec, glove=None, idf_lookup=None, label="d
     return feats
 
 
-# ─── Per-option scorer wrapper ────────────────────────────────────────────────
+# --- Per-option scorer wrapper ------------------------------------------------
 class MCOptionScorer:
     """Bundles scaler + classifier (+ idf, vectorizer) for inference."""
     def __init__(self, scaler, classifier, idf=None, vectorizer=None):
@@ -714,11 +717,11 @@ class MCOptionScorer:
         return self._scores(X_per_option)
 
 
-# ─── Shared per-option SGD trainer (used by LR + SVM) ────────────────────────
+# --- Shared per-option SGD trainer (used by LR + SVM) ------------------------
 def eval_per_option_metrics(scores, y):
     """
     Compute (EM, EM-F1, BinAcc, BinF1) given (N, 4) per-option scores and
-    (N,) labels. Used for both val and test reporting — keeps the metric
+    (N,) labels. Used for both val and test reporting -- keeps the metric
     code identical across the two splits so the columns are apples-to-apples.
     """
     preds = scores.argmax(axis=1)
@@ -747,9 +750,9 @@ def train_per_option(model, train_X, train_y_raw, val_X, val_y, name,
     rng = np.random.default_rng(42)
     sgd_batch = BATCH_SIZE * 4
 
-    print(f"[{name}] Training {n_epochs} epochs × {N * 4:,} option-examples")
+    print(f"[{name}] Training {n_epochs} epochs x {N * 4:,} option-examples")
     # Track best epoch and restore that model state at the end. Hinge-loss
-    # SGD can diverge late in training (we saw SVM crash from 33% → 23% at
+    # SGD can diverge late in training (we saw SVM crash from 33% -> 23% at
     # epoch 6). Best-epoch restore makes the training procedure robust to
     # this kind of late-epoch overshoot for both LR and SVM.
     best_acc = -1.0
@@ -769,7 +772,7 @@ def train_per_option(model, train_X, train_y_raw, val_X, val_y, name,
             best_acc       = acc
             best_coef      = model.coef_.copy()
             best_intercept = model.intercept_.copy()
-            marker = "  ← best"
+            marker = "  <- best"
         print(f"  Epoch {epoch + 1}/{n_epochs}: val acc = {acc * 100:.2f}%{marker}")
 
     # Restore best epoch's weights
@@ -780,15 +783,15 @@ def train_per_option(model, train_X, train_y_raw, val_X, val_y, name,
     val_scores = model.decision_function(val_flat).reshape(-1, 4)
     val_preds  = val_scores.argmax(axis=1)
 
-    # Per-question metrics — Exact Match (EM) is the spec-defined "did the
-    # model pick the right A/B/C/D for this question" metric (§4.5).
+    # Per-question metrics -- Exact Match (EM) is the spec-defined "did the
+    # model pick the right A/B/C/D for this question" metric (Sec.4.5).
     em      = accuracy_score(val_y, val_preds)
     em_f1   = f1_score(val_y, val_preds, average='macro')
 
-    # Binary metrics — apples-to-apples with peers using the (article, question,
-    # option) → 0/1 binary-pivot framing. Threshold the decision function at 0.
+    # Binary metrics -- apples-to-apples with peers using the (article, question,
+    # option) -> 0/1 binary-pivot framing. Threshold the decision function at 0.
     # NOTE: binary "accuracy" on a 1:3 imbalanced task has a 75% no-skill
-    # baseline (always-predict-wrong), so high binary acc ≠ better answer
+    # baseline (always-predict-wrong), so high binary acc != better answer
     # picking. EM is the real metric.
     val_y_binary = np.zeros(len(val_y) * 4, dtype=np.int32)
     val_y_binary[np.arange(len(val_y)) * 4 + val_y] = 1
@@ -809,10 +812,10 @@ def train_per_option(model, train_X, train_y_raw, val_X, val_y, name,
     return scaler, model, em, em_f1, val_scores, binary_acc, binary_f1
 
 
-# ─── A1: Logistic Regression ──────────────────────────────────────────────────
+# --- A1: Logistic Regression --------------------------------------------------
 def run_logistic_regression(train_X, train_y, val_X, val_y, idf, vec):
     print("\n" + "=" * 70)
-    print("A1  Logistic Regression  —  Answer Verification")
+    print("A1  Logistic Regression  --  Answer Verification")
     print("=" * 70)
     model = SGDClassifier(
         loss='log_loss', penalty='l2', alpha=1e-4,
@@ -827,12 +830,12 @@ def run_logistic_regression(train_X, train_y, val_X, val_y, idf, vec):
     return scorer, em, em_f1, scores, bin_acc, bin_f1
 
 
-# ─── A2: Linear SVM ──────────────────────────────────────────────────────────
+# --- A2: Linear SVM ----------------------------------------------------------
 def run_linear_svm(train_X, train_y, val_X, val_y, idf, vec):
     print("\n" + "=" * 70)
-    print("A2  Linear SVM  —  Answer Verification")
+    print("A2  Linear SVM  --  Answer Verification")
     print("=" * 70)
-    # Slightly higher alpha than LR (5e-4 vs 1e-4) — hinge loss is more prone
+    # Slightly higher alpha than LR (5e-4 vs 1e-4) -- hinge loss is more prone
     # to late-epoch overshoot than log_loss; extra regularisation tames it.
     # Best-epoch restore in train_per_option is the additional safety net.
     model = SGDClassifier(
@@ -848,7 +851,7 @@ def run_linear_svm(train_X, train_y, val_X, val_y, idf, vec):
     return scorer, em, em_f1, scores, bin_acc, bin_f1
 
 
-# ─── A3: Naive Bayes — Question Type Classification ──────────────────────────
+# --- A3: Naive Bayes -- Question Type Classification --------------------------
 QUESTION_TYPE_PATTERNS = [
     ('main_idea', [
         r'\bmain idea\b', r'\bbest title\b', r'\bmain point\b',
@@ -888,21 +891,21 @@ def label_question(text):
     return 'other'
 
 
-# ─── A2.5: Random Forest (per-option binary, third base for ensemble) ──────
+# --- A2.5: Random Forest (per-option binary, third base for ensemble) ------
 def run_random_forest(train_X, train_y_raw, val_X, val_y,
                       n_estimators=100, max_depth=20):
     """
     RandomForest as a third base classifier for the ensemble. Trees capture
     non-linear feature interactions that linear LR/SVM can't, so RF makes
-    *different mistakes* — that decorrelation is what lets the ensemble
+    *different mistakes* -- that decorrelation is what lets the ensemble
     actually exceed the best individual.
 
     Same per-option binary framing as LR/SVM:
-      - Flatten (N, 4, F) → (N*4, F), build binary labels (1=correct option)
+      - Flatten (N, 4, F) -> (N*4, F), build binary labels (1=correct option)
       - Train RF, get class-1 probabilities, reshape to (N, 4), argmax
     """
     print("\n" + "=" * 70)
-    print("A2.5  Random Forest  —  Answer Verification (ensemble base)")
+    print("A2.5  Random Forest  --  Answer Verification (ensemble base)")
     print("=" * 70)
 
     N, _, F = train_X.shape
@@ -913,7 +916,7 @@ def run_random_forest(train_X, train_y_raw, val_X, val_y,
     train_y_bin[np.arange(N) * 4 + train_y_raw] = 1
 
     print(f"[RF] Training {n_estimators} trees, max_depth={max_depth}, "
-          f"on {N * 4:,} option-examples × {F} features (n_jobs=-1)")
+          f"on {N * 4:,} option-examples x {F} features (n_jobs=-1)")
     model = RandomForestClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
@@ -923,7 +926,7 @@ def run_random_forest(train_X, train_y_raw, val_X, val_y,
         random_state=42,
     )
     model.fit(train_flat, train_y_bin)
-    print("[RF] ✓ training complete")
+    print("[RF] -> Training complete")
 
     # P(correct=1) per option, reshape (N_val, 4), argmax
     val_probs  = model.predict_proba(val_flat)[:, 1]
@@ -951,7 +954,7 @@ def run_random_forest(train_X, train_y_raw, val_X, val_y,
 
 def run_naive_bayes(train_df, val_df):
     print("\n" + "=" * 70)
-    print("A3  Naive Bayes  —  Question Type Classification")
+    print("A3  Naive Bayes  --  Question Type Classification")
     print("=" * 70)
 
     train_qtype = train_df['question'].fillna('').apply(label_question).values
@@ -982,7 +985,7 @@ def run_naive_bayes(train_df, val_df):
     return acc, f1
 
 
-# ─── A4: K-Means clustering ──────────────────────────────────────────────────
+# --- A4: K-Means clustering --------------------------------------------------
 def kmeans_features(p, q, o):
     """30,008-dim aggregated feature for K-Means (passage|question|opts|overlaps)."""
     p = p.astype(np.float32, copy=False)
@@ -996,7 +999,7 @@ def kmeans_features(p, q, o):
 
 def run_kmeans(train_npz_path, val_npz_path, val_y):
     print("\n" + "=" * 70)
-    print("A4  K-Means  —  Unsupervised Clustering")
+    print("A4  K-Means  --  Unsupervised Clustering")
     print("=" * 70)
 
     model = MiniBatchKMeans(
@@ -1033,16 +1036,33 @@ def run_kmeans(train_npz_path, val_npz_path, val_y):
             purity += np.bincount(val_y[mask], minlength=4).max()
     purity /= len(val_y)
 
-    print(f"\n[K-Means] Cluster purity: {purity * 100:.2f}%")
+    print(f"\n[K-Means] Cluster purity:    {purity * 100:.2f}%")
+
+    # Silhouette score on a 2000-row sample (full ~8.7k x 30k-d is expensive
+    # and silhouette is O(n^2) in the number of points). Spec Sec.4.5 / rubric
+    # asks for clustering purity OR silhouette -- we report both.
+    print("[K-Means] Computing silhouette score (2,000-row sample)...")
+    sample_n = min(2000, pv.shape[0])
+    rng = np.random.default_rng(42)
+    sample_idx = rng.choice(pv.shape[0], size=sample_n, replace=False)
+    sample_feats = kmeans_features(pv[sample_idx], qv[sample_idx], ov[sample_idx])
+    sample_clusters = val_clusters[sample_idx]
+    # Need >=2 distinct clusters in the sample for silhouette to be defined
+    if len(set(sample_clusters)) >= 2:
+        sil = silhouette_score(sample_feats, sample_clusters, metric='euclidean')
+        print(f"[K-Means] Silhouette score: {sil:.4f}   (range -1..1, higher is better)")
+    else:
+        sil = float('nan')
+        print("[K-Means] Silhouette undefined -- sample collapsed to one cluster.")
 
     save_model(model, MODEL_KMEANS_PATH)
     return purity
 
 
-# ─── A5: Soft Voting Ensemble ────────────────────────────────────────────────
+# --- A5: Soft Voting Ensemble ------------------------------------------------
 def run_ensemble(members, val_y):
     """
-    Weighted soft-voting ensemble (per spec §4.4).
+    Weighted soft-voting ensemble (per spec Sec.4.4).
 
     members: list of dicts, each with:
       - 'name'   (str)         : display name (e.g. 'LR', 'SVM', 'RF')
@@ -1051,21 +1071,21 @@ def run_ensemble(members, val_y):
 
     Why weighted:
       Equal-weight averaging (the classical 'naive' soft vote) lets weaker
-      members drag down stronger ones. With weights ∝ (EM − random_baseline),
+      members drag down stronger ones. With weights ~ (EM - random_baseline),
       a member at random gets zero vote and the strongest members dominate.
 
     Why z-normalise per-question:
       LR returns log-odds, SVM returns hinge margin, RF returns probabilities
-      — all on different scales. Z-scoring the 4 option scores within each
+      -- all on different scales. Z-scoring the 4 option scores within each
       question puts every member on the same relative scale, so what matters
       is the *ranking* of options, not the raw magnitude.
     """
     print("\n" + "=" * 70)
     names = " + ".join(m['name'] for m in members)
-    print(f"A5  Weighted Soft Voting Ensemble  —  {names}")
+    print(f"A5  Weighted Soft Voting Ensemble  --  {names}")
     print("=" * 70)
 
-    # Weights: skill above random (EM − 0.25), clipped to ≥ 0
+    # Weights: skill above random (EM - 0.25), clipped to >= 0
     raw_weights = np.array([max(0.0, m['em'] - 0.25) for m in members],
                            dtype=np.float64)
     if raw_weights.sum() < 1e-9:
@@ -1075,7 +1095,7 @@ def run_ensemble(members, val_y):
 
     print("[Ensemble] Member weights (EM-skill above random, normalised):")
     for m, w in zip(members, weights):
-        print(f"  {m['name']:<6} EM = {m['em'] * 100:5.2f}%  →  weight = {w:.4f}")
+        print(f"  {m['name']:<6} EM = {m['em'] * 100:5.2f}%  ->  weight = {w:.4f}")
 
     # Z-normalise per question, then weighted average
     ens_scores = np.zeros_like(members[0]['scores'], dtype=np.float64)
@@ -1111,7 +1131,7 @@ def run_ensemble(members, val_y):
     return em, em_f1, binary_acc, binary_f1
 
 
-# ─── A6: Stacking ensemble (meta-LR over base predictions) ────────────────────
+# --- A6: Stacking ensemble (meta-LR over base predictions) --------------------
 def _build_meta_features(lr_scores, svm_scores, rf_scores):
     """
     Per-option meta-features for the stacking ensemble: 6 features per option,
@@ -1130,8 +1150,8 @@ def _build_meta_features(lr_scores, svm_scores, rf_scores):
 def run_stacking(lr_scorer, svm_scorer, rf_model,
                  stack_X, stack_y, val_X, val_y):
     """
-    Stacking ensemble (per spec §4.4): train a meta-LR on the *predictions*
-    of the base models — LR, SVM, RF — applied to a held-out 10% of train
+    Stacking ensemble (per spec Sec.4.4): train a meta-LR on the *predictions*
+    of the base models -- LR, SVM, RF -- applied to a held-out 10% of train
     that none of them saw during training. The meta-LR learns from data which
     member to trust in which situation, instead of using a fixed weight rule.
 
@@ -1140,7 +1160,7 @@ def run_stacking(lr_scorer, svm_scorer, rf_model,
     actual evidence, not just average EM.
     """
     print("\n" + "=" * 70)
-    print("A6  Stacking Ensemble  —  Meta-LR over LR + SVM + RF")
+    print("A6  Stacking Ensemble  --  Meta-LR over LR + SVM + RF")
     print("=" * 70)
 
     F = stack_X.shape[2]
@@ -1167,15 +1187,15 @@ def run_stacking(lr_scorer, svm_scorer, rf_model,
     stack_y_bin  = np.zeros(N_s * 4, dtype=np.int32)
     stack_y_bin[np.arange(N_s) * 4 + stack_y] = 1
 
-    print(f"[Stacking] Training meta-LR on {N_s * 4:,} option-examples × {M} meta-features")
+    print(f"[Stacking] Training meta-LR on {N_s * 4:,} option-examples x {M} meta-features")
     meta = LogisticRegression(C=1.0, max_iter=300, n_jobs=-1, random_state=42)
     meta.fit(stack_flat, stack_y_bin)
 
-    # Print learned weights — this directly answers "which member matters most?"
+    # Print learned weights -- this directly answers "which member matters most?"
     feat_names = ['LR_raw', 'SVM_raw', 'RF_raw', 'LR_z', 'SVM_z', 'RF_z']
-    print("[Stacking] Meta-LR learned weights (signed → which member is trusted):")
+    print("[Stacking] Meta-LR learned weights (signed -> which member is trusted):")
     for name, w in zip(feat_names, meta.coef_[0]):
-        bar = "█" * int(abs(w) * 10)
+        bar = "#" * int(abs(w) * 10)
         sign = '+' if w >= 0 else '-'
         print(f"  {name:<8} {sign}{abs(w):.4f}   {bar}")
 
@@ -1201,21 +1221,30 @@ def run_stacking(lr_scorer, svm_scorer, rf_model,
     print(classification_report(val_y, val_preds,
                                 target_names=['A', 'B', 'C', 'D'], digits=4))
 
+    # Confusion Matrix -- spec Sec.4.5 / rubric "Metric Comparison Table"
+    cm = confusion_matrix(val_y, val_preds, labels=[0, 1, 2, 3])
+    print("[Stacking] Confusion Matrix (rows = true, cols = predicted):")
+    header = "          " + "".join(f"{l:>8}" for l in ['A', 'B', 'C', 'D'])
+    print(header)
+    for i, lbl in enumerate(['A', 'B', 'C', 'D']):
+        row = "".join(f"{int(v):>8}" for v in cm[i])
+        print(f"  true={lbl}  {row}")
+
     save_model(meta, MODEL_STACKING_PATH)
     # Returning `meta` (the meta-LR) so the test-eval block in main() can
     # apply the same trained meta-classifier to test-set base predictions.
     return em, em_f1, binary_acc, binary_f1, meta
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# PART 2 — TEXT GENERATION (per professor's announcement)
-# Spec §4.2.3 — Wh-template question generation evaluated with BLEU/ROUGE/METEOR
-# ═════════════════════════════════════════════════════════════════════════════
+# =============================================================================
+# PART 2 -- TEXT GENERATION (per professor's announcement)
+# Spec Sec.4.2.3 -- Wh-template question generation evaluated with BLEU/ROUGE/METEOR
+# =============================================================================
 GEN_NUM_RE  = re.compile(r'\b\d+\b')
 GEN_YEAR_RE = re.compile(r'\b\d{4}\b')
 GEN_WORD_RE = re.compile(r'\b[a-zA-Z]+\b')
 
-# Heuristic place hints — small allow-list, no NLP tools per spec
+# Heuristic place hints -- small allow-list, no NLP tools per spec
 PLACE_HINTS = {
     'china', 'japan', 'india', 'usa', 'america', 'europe', 'asia', 'africa',
     'london', 'paris', 'tokyo', 'beijing', 'rome', 'cairo', 'sydney', 'moscow',
@@ -1230,8 +1259,8 @@ ARTICLE_WORDS = {'The', 'A', 'An', 'This', 'That', 'These', 'Those', 'His',
                  'They', 'We', 'I', 'You'}
 
 # Generic Wh-templates used as fallback when literal cloze is impossible.
-# These are common RACE-style abstract question templates — applying them
-# is still spec-compliant (§4.2.3 says "apply Wh-word templates"; the
+# These are common RACE-style abstract question templates -- applying them
+# is still spec-compliant (Sec.4.2.3 says "apply Wh-word templates"; the
 # templates needn't come from the sentence). A learned ranker (Step 3,
 # deferred) could in principle pick between literal cloze and these.
 GENERIC_QG_TEMPLATES = [
@@ -1241,7 +1270,7 @@ GENERIC_QG_TEMPLATES = [
     "What can we infer from the passage?",
     "What does the passage mainly tell us?",
 ]
-MAX_QUESTION_TOKENS = 25  # cap output length — overlong cloze kills BLEU
+MAX_QUESTION_TOKENS = 25  # cap output length -- overlong cloze kills BLEU
 
 
 def _ensure_nltk_data():
@@ -1268,7 +1297,7 @@ def gen_tokens_lower(text):
 
 def find_answer_sentence(passage, correct_answer_text):
     """
-    Spec §4.2.3 Step 1 — pick the passage sentence with maximum keyword
+    Spec Sec.4.2.3 Step 1 -- pick the passage sentence with maximum keyword
     overlap to the correct answer text. Falls back to the first sentence
     on ties or empty answers.
     """
@@ -1290,8 +1319,8 @@ def find_answer_sentence(passage, correct_answer_text):
 def pick_wh_word(answer_span):
     """
     Heuristically pick a Wh-word from the answer's surface form.
-    'Who' is conservative — only fires on a single capitalised token or
-    a person-title prefix (Mr/Mrs/Dr/Miss/Professor/Sir/Lady) — so it
+    'Who' is conservative -- only fires on a single capitalised token or
+    a person-title prefix (Mr/Mrs/Dr/Miss/Professor/Sir/Lady) -- so it
     doesn't over-trigger on multi-word phrases like 'A small Teng from Thailand'.
     """
     answer = str(answer_span).strip()
@@ -1322,18 +1351,18 @@ def _generic_template_for(passage):
 
 def cloze_question(sentence, answer_span, passage_for_fallback=""):
     """
-    Spec §4.2.3 Step 2 — substitute the answer span in the sentence with
+    Spec Sec.4.2.3 Step 2 -- substitute the answer span in the sentence with
     a Wh-word, end with '?'. Improvements over the v1 version:
 
       1) Try literal substring match first (case-insensitive).
       2) If miss, retry with progressively shorter trailing slices of the
-         answer (last 3, then last 2, then last 1 token) — RACE answer
+         answer (last 3, then last 2, then last 1 token) -- RACE answer
          strings are often paraphrases, but the last few content words
          often appear verbatim in the passage.
       3) If still miss, emit a generic Wh-template (rotated per passage).
-      4) Cap output at MAX_QUESTION_TOKENS (≈25). Anything longer is the
+      4) Cap output at MAX_QUESTION_TOKENS (~25). Anything longer is the
          "What is described by: [whole sentence]" failure mode that
-         destroys BLEU on length mismatch — replace with a generic template.
+         destroys BLEU on length mismatch -- replace with a generic template.
     """
     sentence = str(sentence).strip()
     answer = str(answer_span).strip()
@@ -1350,7 +1379,7 @@ def cloze_question(sentence, answer_span, passage_for_fallback=""):
 
     question = _try_substitute(answer)
 
-    # Progressive shortening: last 3 → last 2 → last 1 token of the answer
+    # Progressive shortening: last 3 -> last 2 -> last 1 token of the answer
     if question is None:
         ans_tokens = answer.split()
         for k in (3, 2, 1):
@@ -1360,7 +1389,7 @@ def cloze_question(sentence, answer_span, passage_for_fallback=""):
                 if question is not None:
                     break
 
-    # Final fallback: generic template — not the awful "What is described by:" dump
+    # Final fallback: generic template -- not the awful "What is described by:" dump
     if question is None:
         return _generic_template_for(passage_for_fallback or sentence)
 
@@ -1371,7 +1400,7 @@ def cloze_question(sentence, answer_span, passage_for_fallback=""):
     if question and question[0].islower():
         question = question[0].upper() + question[1:]
 
-    # Length cap — overlong clozes torpedo BLEU vs short gold questions
+    # Length cap -- overlong clozes torpedo BLEU vs short gold questions
     if len(question.split()) > MAX_QUESTION_TOKENS:
         return _generic_template_for(passage_for_fallback or sentence)
 
@@ -1379,7 +1408,7 @@ def cloze_question(sentence, answer_span, passage_for_fallback=""):
 
 
 def generate_question(passage, correct_answer_text):
-    """End-to-end: passage + correct answer → generated question."""
+    """End-to-end: passage + correct answer -> generated question."""
     sentence = find_answer_sentence(passage, correct_answer_text)
     return cloze_question(sentence, correct_answer_text, passage_for_fallback=passage)
 
@@ -1391,9 +1420,9 @@ class GenerationMetrics:
     end of a split.
 
     Two BLEU numbers are reported:
-      • bleu_sent   — sentence-level BLEU per row, then averaged.
-      • bleu_corpus — corpus BLEU across the whole split. This is the
-                      "standard" BLEU and is typically 1.5–2× the averaged
+      * bleu_sent   -- sentence-level BLEU per row, then averaged.
+      * bleu_corpus -- corpus BLEU across the whole split. This is the
+                      "standard" BLEU and is typically 1.5-2x the averaged
                       sentence-BLEU; peers reporting the higher number are
                       almost certainly using corpus BLEU.
     """
@@ -1416,12 +1445,12 @@ class GenerationMetrics:
         # Buffer for later corpus-BLEU computations
         self._corpus_refs.append([ref_tokens])
         self._corpus_gens.append(gen_tokens)
-        # BLEU-1 (unigram precision only) — more meaningful for short
+        # BLEU-1 (unigram precision only) -- more meaningful for short
         # outputs (~10 tokens) where 4-gram match rates collapse to zero.
         bleu_1 = sentence_bleu([ref_tokens], gen_tokens,
                                weights=(1.0,),
                                smoothing_function=self.smoothie)
-        # BLEU-4 (NLTK default — geometric mean of 1..4 gram precisions).
+        # BLEU-4 (NLTK default -- geometric mean of 1..4 gram precisions).
         bleu_4 = sentence_bleu([ref_tokens], gen_tokens,
                                smoothing_function=self.smoothie)
         return {
@@ -1434,7 +1463,7 @@ class GenerationMetrics:
         }
 
     def corpus_bleu_at_n(self, n=4):
-        """Corpus BLEU with weights (1/n,…,1/n). n=1 → BLEU-1, n=4 → BLEU-4."""
+        """Corpus BLEU with weights (1/n,...,1/n). n=1 -> BLEU-1, n=4 -> BLEU-4."""
         if not self._corpus_gens:
             return 0.0
         weights = tuple([1.0 / n] * n)
@@ -1477,7 +1506,7 @@ def evaluate_generation_split(df, label, sample_examples=5):
 
         if len(examples) < sample_examples:
             examples.append({
-                'passage_excerpt': passage[:140] + ('…' if len(passage) > 140 else ''),
+                'passage_excerpt': passage[:140] + ('...' if len(passage) > 140 else ''),
                 'gold_q': gold_q,
                 'gen_q':  gen_q,
                 'gold_a': gold_a,
@@ -1502,9 +1531,9 @@ def sentence_ranker_features(sentence, passage, answer, idf_lookup, position):
       - n_tokens        : sentence length
       - position        : sentence index in passage, normalised to [0, 1]
       - psg_overlap     : fraction of sentence tokens that recur in passage
-      - has_capitalised : flag — sentence contains a non-initial capitalised
+      - has_capitalised : flag -- sentence contains a non-initial capitalised
                           word (proxy for named-entity content)
-      - has_digit       : flag — sentence contains digits (numbers / years)
+      - has_digit       : flag -- sentence contains digits (numbers / years)
       - avg_token_len   : mean token length (proxy for content density)
     """
     s_tokens = gen_tokens_lower(sentence)
@@ -1539,13 +1568,13 @@ def build_ranker_train_data(df, idf_lookup, max_rows=20000, neg_per_pos=3,
     Two label strategies:
       label_by_bleu = False
           Positive = highest-overlap-with-gold-answer sentence.
-          Trains the ranker to *imitate* the overlap heuristic — which means
+          Trains the ranker to *imitate* the overlap heuristic -- which means
           it can match the baseline at best, never beat it.
 
       label_by_bleu = True   (default)
           Positive = the sentence whose Wh-cloze produces the highest BLEU
           against the gold question. Now the ranker learns *what produces
-          good QUESTIONS*, not what looks answer-bearing — so it can
+          good QUESTIONS*, not what looks answer-bearing -- so it can
           legitimately beat the overlap baseline at generation time.
 
     Each row contributes 1 positive + up to neg_per_pos sampled negatives.
@@ -1610,15 +1639,15 @@ def build_ranker_train_data(df, idf_lookup, max_rows=20000, neg_per_pos=3,
 
 def train_sentence_rankers(train_df, idf_lookup):
     """
-    Train three sentence rankers — LR, NB, SVM — on the same features.
+    Train three sentence rankers -- LR, NB, SVM -- on the same features.
     Returns dict {'LR': ..., 'NB': ..., 'SVM': ...}.
     """
     print("\n[GEN-RANKERS] Building BLEU-labelled training data for sentence rankers...")
     print("  (positive = sentence whose cloze BLEUs highest vs gold question;")
     print("   trains the ranker to pick *generation-friendly* sentences, not")
-    print("   just answer-bearing ones — the latter would just imitate the baseline)")
+    print("   just answer-bearing ones -- the latter would just imitate the baseline)")
     X, y = build_ranker_train_data(train_df, idf_lookup, label_by_bleu=True)
-    print(f"  {len(X):,} training examples × {X.shape[1]} features  "
+    print(f"  {len(X):,} training examples x {X.shape[1]} features  "
           f"(positives: {int(y.sum()):,})")
 
     rankers = {}
@@ -1648,7 +1677,7 @@ def _ranker_score(ranker, feats):
 
 def generate_question_with_ranker(passage, answer_text, ranker, idf_lookup):
     """
-    Spec §4.2.3 Step 3 — pick the cloze source sentence using a trained
+    Spec Sec.4.2.3 Step 3 -- pick the cloze source sentence using a trained
     ranker instead of the overlap heuristic, then apply the same Wh-template
     cloze (Step 2). Returns the generated question string.
     """
@@ -1668,7 +1697,7 @@ def generate_question_with_ranker(passage, answer_text, ranker, idf_lookup):
 
 
 def evaluate_generation_with_ranker(df, ranker, idf_lookup, label):
-    """Evaluate a single ranker variant — returns (avg_metrics, n_scored)."""
+    """Evaluate a single ranker variant -- returns (avg_metrics, n_scored)."""
     metrics = GenerationMetrics()
     keys = ['bleu_1', 'bleu', 'rouge1', 'rouge2', 'rougeL', 'meteor']
     sums = {k: 0.0 for k in keys}
@@ -1698,10 +1727,10 @@ def evaluate_generation_with_ranker(df, ranker, idf_lookup, label):
 
 def run_generation_pipeline(train_df, val_df, test_df, idf_lookup):
     """
-    Full spec §4.2.3 question-generation pipeline:
-      Step 1 — extract candidate sentences (overlap heuristic OR ranker)
-      Step 2 — Wh-template cloze
-      Step 3 — Ranker over candidate sentences (LR / NB / SVM)
+    Full spec Sec.4.2.3 question-generation pipeline:
+      Step 1 -- extract candidate sentences (overlap heuristic OR ranker)
+      Step 2 -- Wh-template cloze
+      Step 3 -- Ranker over candidate sentences (LR / NB / SVM)
 
     Trains all three rankers on `train_df`, then evaluates each variant
     plus a Baseline (overlap heuristic) on val and test. Returns a dict
@@ -1712,17 +1741,17 @@ def run_generation_pipeline(train_df, val_df, test_df, idf_lookup):
        'test': {'metrics': {...}, 'n': int}}
     """
     print("\n" + "=" * 70)
-    print("A7  Question Generation  —  Wh-template cloze + sentence ranker")
+    print("A7  Question Generation  --  Wh-template cloze + sentence ranker")
     print("=" * 70)
 
     if not _NLTK_AVAILABLE:
-        print("[WARN] nltk / rouge-score not installed — skipping generation.")
+        print("[WARN] nltk / rouge-score not installed -- skipping generation.")
         print("       Install with: pip install nltk rouge-score")
         return None
 
     _ensure_nltk_data()
 
-    # ─── Variant 1: Baseline (overlap heuristic, current logic) ──────────
+    # --- Variant 1: Baseline (overlap heuristic, current logic) ----------
     print("\n[GEN] Variant: Baseline (overlap heuristic)")
     bv_m, bv_ex, bv_n = evaluate_generation_split(val_df,  "VAL")
     bt_m, _,     bt_n = evaluate_generation_split(test_df, "TEST")
@@ -1730,7 +1759,7 @@ def run_generation_pipeline(train_df, val_df, test_df, idf_lookup):
     # 5 baseline examples for eyeballing quality
     print("\n[Examples] Baseline cloze vs gold (val):")
     for i, ex in enumerate(bv_ex[:5], start=1):
-        print(f"\n  ── Example {i} ─────────────────────────────────────")
+        print(f"\n  -- Example {i} -------------------------------------")
         print(f"  Passage : {ex['passage_excerpt']}")
         print(f"  Gold A  : {ex['gold_a']}")
         print(f"  Gold Q  : {ex['gold_q']}")
@@ -1746,13 +1775,13 @@ def run_generation_pipeline(train_df, val_df, test_df, idf_lookup):
         }
     }
 
-    # ─── Variants 2-4: LR / NB / SVM sentence rankers (Step 3) ───────────
+    # --- Variants 2-4: LR / NB / SVM sentence rankers (Step 3) -----------
     rankers = train_sentence_rankers(train_df, idf_lookup)
     for name, ranker in rankers.items():
         print(f"\n[GEN] Variant: {name} sentence ranker")
         v_m, v_n = evaluate_generation_with_ranker(val_df,  ranker, idf_lookup, "VAL")
         t_m, t_n = evaluate_generation_with_ranker(test_df, ranker, idf_lookup, "TEST")
-        results[f'Ranker — {name}'] = {
+        results[f'Ranker -- {name}'] = {
             'val':  {'metrics': v_m, 'n': v_n},
             'test': {'metrics': t_m, 'n': t_n},
         }
@@ -1760,7 +1789,7 @@ def run_generation_pipeline(train_df, val_df, test_df, idf_lookup):
     return results
 
 
-# ─── Final summary ───────────────────────────────────────────────────────────
+# --- Final summary -----------------------------------------------------------
 def print_summary(results, generation=None):
     """
     Final comparison table for Model A.
@@ -1768,9 +1797,9 @@ def print_summary(results, generation=None):
       generation : optional dict from run_generation_pipeline with 'VAL'/'TEST'
                    keys, each mapping to {'metrics': {...}, 'n': int}.
     """
-    # ─── Part 1: Verification (classification) ───
+    # --- Part 1: Verification (classification) ---
     print("\n" + "=" * 110)
-    print("FINAL COMPARISON  —  Model A  (Part 1: Verification, classical ML)")
+    print("FINAL COMPARISON  --  Model A  (Part 1: Verification, classical ML)")
     print("=" * 110)
     print(f"{'Approach':<26} {'Task':<16} "
           f"{'Val-EM':>8} {'Val-F1':>8}   {'Test-EM':>8} {'Test-F1':>8}   "
@@ -1780,26 +1809,26 @@ def print_summary(results, generation=None):
         if 'em' in r:
             em_str = f"{r['em'] * 100:>7.2f}%"
             f1_str = f"{r['em_f1']:>8.4f}"
-            t_em   = f"{r['test_em'] * 100:>7.2f}%" if 'test_em' in r else f"{'—':>8}"
-            t_f1   = f"{r['test_em_f1']:>8.4f}" if 'test_em_f1' in r else f"{'—':>8}"
+            t_em   = f"{r['test_em'] * 100:>7.2f}%" if 'test_em' in r else f"{'--':>8}"
+            t_f1   = f"{r['test_em_f1']:>8.4f}" if 'test_em_f1' in r else f"{'--':>8}"
             if 'binary_acc' in r:
                 bacc = f"{r['binary_acc'] * 100:>7.2f}%"
                 bf1  = f"{r['binary_f1']:>8.4f}"
             else:
-                bacc = f"{'—':>8}"
-                bf1  = f"{'—':>8}"
+                bacc = f"{'--':>8}"
+                bf1  = f"{'--':>8}"
             print(f"{name:<26} {r['task']:<16} {em_str:>8} {f1_str}   "
                   f"{t_em:>8} {t_f1}   {bacc} {bf1}")
         elif 'purity' in r:
             pur_str = f"{r['purity'] * 100:>7.2f}%"
-            print(f"{name:<26} {r['task']:<16} {pur_str:>8} {'—':>8}   "
-                  f"{'—':>8} {'—':>8}   {'—':>8} {'—':>8}")
+            print(f"{name:<26} {r['task']:<16} {pur_str:>8} {'--':>8}   "
+                  f"{'--':>8} {'--':>8}   {'--':>8} {'--':>8}")
     print("=" * 110)
 
-    # ─── Part 2: Generation (text-gen, BLEU/ROUGE/METEOR) ───
+    # --- Part 2: Generation (text-gen, BLEU/ROUGE/METEOR) ---
     if generation:
         print("\n" + "=" * 92)
-        print("FINAL COMPARISON  —  Model A  (Part 2: Generation, BLEU/ROUGE/METEOR)")
+        print("FINAL COMPARISON  --  Model A  (Part 2: Generation, BLEU/ROUGE/METEOR)")
         print("=" * 132)
         # BLEU columns:
         #   BLEU-1   = unigram precision (more meaningful for short outputs;
@@ -1828,21 +1857,21 @@ def print_summary(results, generation=None):
     print()
 
 
-# ─── Main orchestrator ────────────────────────────────────────────────────────
+# --- Main orchestrator --------------------------------------------------------
 def main():
     print("\n" + "#" * 70)
-    print("# QuizForge — Model A")
+    print("# QuizForge: Model A")
     print("#" * 70)
 
-    # ─── 1. Load data once ────────────────────────────────────────────────
+    # --- 1. Load data once ------------------------------------------------
     train_df, val_df, train_y, val_y = load_data()
 
     # Test split is loaded only for Part 2 (generation eval). Part 1 keeps
-    # using val for model selection — unchanged from before.
+    # using val for model selection -- unchanged from before.
     test_df = pd.read_csv(TEST_CSV_PATH)
     print(f"  Test:  {len(test_df):,} questions  (used for generation eval)")
 
-    # ─── 2. Compute shared resources (IDF, TF-IDF vectorizer) ─────────────
+    # --- 2. Compute shared resources (IDF, TF-IDF vectorizer) -------------
     print("\n[SHARED] Computing IDF over training corpus...")
     idf = compute_idf(TRAIN_FEATURES_PATH)
     print(f"  IDF range [{idf.min():.3f}, {idf.max():.3f}], median {np.median(idf):.3f}")
@@ -1850,17 +1879,17 @@ def main():
     vec = fit_tfidf_vectorizer(TRAIN_CSV_PATH)
     os.makedirs(MODELS_DIR, exist_ok=True)
     joblib.dump(vec, TFIDF_VEC_PATH)
-    print(f"  vectorizer saved → {TFIDF_VEC_PATH}")
+    print(f"  vectorizer saved -> {TFIDF_VEC_PATH}")
 
-    # GloVe is optional — auto-detect, skip gracefully if unavailable
+    # GloVe is optional -- auto-detect, skip gracefully if unavailable
     glove = load_glove()
 
-    # IDF lookup (word → IDF score) — used by GloVe averaging *and* by the
+    # IDF lookup (word -> IDF score) -- used by GloVe averaging *and* by the
     # generation ranker features. Always build it; it's cheap.
     idf_lookup = build_idf_lookup(vec)
     print(f"  IDF lookup ready ({len(idf_lookup):,} unigrams from TF-IDF vocab)")
 
-    # ─── 3. Build per-option features once (used by LR, SVM, Ensemble) ────
+    # --- 3. Build per-option features once (used by LR, SVM, Ensemble) ----
     train_X = build_features(
         TRAIN_FEATURES_PATH, train_df, idf, vec,
         glove=glove, idf_lookup=idf_lookup, label="train",
@@ -1870,7 +1899,7 @@ def main():
         glove=glove, idf_lookup=idf_lookup, label="val",
     )
 
-    # ─── 3b. Hold out 10% of train for the stacking meta-classifier ───────
+    # --- 3b. Hold out 10% of train for the stacking meta-classifier -------
     # Stacking needs base-model predictions on data the bases didn't see
     # during training. We train base models on the 90% main split and
     # evaluate them on the 10% holdout to build clean meta-features.
@@ -1888,10 +1917,10 @@ def main():
 
     results = {}
 
-    # ─── 4. Run each approach ─────────────────────────────────────────────
+    # --- 4. Run each approach ---------------------------------------------
     # Base models are trained on the 90% main split (so we can collect clean
     # OOF-style predictions on the 10% holdout for stacking). This costs
-    # individual EM ~0.3–0.5pp but is required for honest stacking.
+    # individual EM ~0.3-0.5pp but is required for honest stacking.
     lr_scorer, lr_em, lr_em_f1, lr_scores, lr_bin_acc, lr_bin_f1 = run_logistic_regression(
         train_X_main, train_y_main, val_X, val_y, idf, vec
     )
@@ -1908,8 +1937,8 @@ def main():
         'binary_acc': svm_bin_acc, 'binary_f1': svm_bin_f1,
     }
 
-    # Random Forest is trained as a third *ensemble base member* per spec §4.4
-    # (NOT listed as a primary deliverable — the spec puts RF under "Difficulty
+    # Random Forest is trained as a third *ensemble base member* per spec Sec.4.4
+    # (NOT listed as a primary deliverable -- the spec puts RF under "Difficulty
     # Estimation", not Answer Verification). Its standalone EM is shown inside
     # the A2.5 section above; we don't add it to the final summary table to
     # keep the canonical 5 (LR, SVM, NB, K-Means, Ensemble) clean.
@@ -1937,7 +1966,7 @@ def main():
         ],
         val_y=val_y,
     )
-    results['Ensemble — Soft Voting'] = {
+    results['Ensemble -- Soft Voting'] = {
         'task': 'Answer Verif', 'em': ens_em, 'em_f1': ens_em_f1,
         'binary_acc': ens_bin_acc, 'binary_f1': ens_bin_f1,
     }
@@ -1947,16 +1976,16 @@ def main():
         lr_scorer, svm_scorer, rf_model,
         stack_X, stack_y, val_X, val_y,
     )
-    results['Ensemble — Stacking'] = {
+    results['Ensemble -- Stacking'] = {
         'task': 'Answer Verif', 'em': stack_em, 'em_f1': stack_em_f1,
         'binary_acc': stack_bin_acc, 'binary_f1': stack_bin_f1,
     }
 
-    # ─── 4b. TEST-set evaluation for verification (held-out generalisation) ─
+    # --- 4b. TEST-set evaluation for verification (held-out generalisation) -
     # Val is what we tuned on (best-epoch selection, ensemble weights).
-    # Test is held-out — if test ≈ val, no overfitting; if test << val, overfit.
+    # Test is held-out -- if test ~ val, no overfitting; if test << val, overfit.
     print("\n" + "=" * 70)
-    print("Test-set evaluation  —  generalisation check on held-out data")
+    print("Test-set evaluation  --  generalisation check on held-out data")
     print("=" * 70)
     test_y = test_df['answer'].map(ANSWER_MAP).values.astype(np.int32)
     test_X = build_features(
@@ -1997,29 +2026,29 @@ def main():
         + weights[2] * normalize_per_question(rf_test_scores)
     ).astype(np.float32)
     em, em_f1, ba, bf = eval_per_option_metrics(ens_test_scores, test_y)
-    results['Ensemble — Soft Voting'].update({
+    results['Ensemble -- Soft Voting'].update({
         'test_em': em, 'test_em_f1': em_f1,
         'test_binary_acc': ba, 'test_binary_f1': bf,
     })
-    print(f"[TEST] {'Ensemble — Soft Voting':<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
+    print(f"[TEST] {'Ensemble -- Soft Voting':<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
 
-    # Stacking Ensemble on test — re-apply the same trained meta-LR
+    # Stacking Ensemble on test -- re-apply the same trained meta-LR
     test_meta = _build_meta_features(lr_test_scores, svm_test_scores, rf_test_scores)
     N_t = test_meta.shape[0]
     test_meta_flat = test_meta.reshape(N_t * 4, -1)
     test_probs = meta_lr.predict_proba(test_meta_flat)[:, 1]
     stack_test_scores = test_probs.reshape(N_t, 4)
     em, em_f1, ba, bf = eval_per_option_metrics(stack_test_scores, test_y)
-    results['Ensemble — Stacking'].update({
+    results['Ensemble -- Stacking'].update({
         'test_em': em, 'test_em_f1': em_f1,
         'test_binary_acc': ba, 'test_binary_f1': bf,
     })
-    print(f"[TEST] {'Ensemble — Stacking':<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
+    print(f"[TEST] {'Ensemble -- Stacking':<22} EM={em*100:6.2f}%  F1={em_f1:.4f}")
 
-    # ─── 5. Part 2: Question generation pipeline (BLEU/ROUGE/METEOR) ──────
+    # --- 5. Part 2: Question generation pipeline (BLEU/ROUGE/METEOR) ------
     generation = run_generation_pipeline(train_df, val_df, test_df, idf_lookup)
 
-    # ─── 6. Comparison table ──────────────────────────────────────────────
+    # --- 6. Comparison table ----------------------------------------------
     print_summary(results, generation=generation)
 
 
