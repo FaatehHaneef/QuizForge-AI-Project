@@ -2,7 +2,7 @@
 QuizForge AI — Streamlit UI
 ============================
 
-Brainrot-themed multi-screen quiz app per spec §6.
+Brainrot-themed multi-screen quiz app per spec §6
 
 Run:
     pip install streamlit
