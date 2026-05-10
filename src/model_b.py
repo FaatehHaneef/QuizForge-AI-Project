@@ -35,7 +35,7 @@ All TF.IDF transforms and GloVe lookups are batched per row (one call per
 row covering all candidates / all sentences) rather than per individual
 candidate. This typically buys a 5-10x speedup over the single-text
 transform pattern, bringing the full pipeline runtime under 10 minutes
-on a modern laptop CPU.
+on a modern laptop CPU
 
 Reuses infrastructure from Model A (no neural code leaks):
   - split_sentences, gen_tokens_lower, row_cosine, text_to_glove_vec

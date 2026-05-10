@@ -15,11 +15,11 @@ two top-level functions:
         4. Extract three graduated hints (general -> near-explicit) via
            Model B's TF.IDF cosine sentence ranker.
       Returns a dict with keys: question, correct_answer, options
-      (already shuffled), distractors, hints, latency_ms (per stage).
+      (already shuffled), distractors, hints, latency_ms (per stage)
 
   load_random_race_sample(split='val')
       Returns one randomly drawn row from the RACE split, already
-      shaped as a quiz dict (question, correct_answer, options, hints).
+      shaped as a quiz dict (question, correct_answer, options, hints)
 
   verify_answer(picked, correct)
       String-equality check. Kept as a function so the UI doesn't have
@@ -29,7 +29,7 @@ Reproducibility: every random choice routes through a single Random
 instance seeded by `seed` if passed; otherwise OS entropy.
 
 This module assumes both `model_a.py` and `model_b.py` have been run
-end-to-end at least once (their .pkl artefacts must exist in models/).
+end-to-end at least once (their .pkl artefacts must exist in models/)
 """
 
 import os
