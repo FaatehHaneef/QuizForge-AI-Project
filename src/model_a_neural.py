@@ -23,7 +23,7 @@ Why this file is separate from `model_a.py`
 -------------------------------------------
 The user's directive: "keep our implementations separate from the neural
 ones for comparison, don't wanna end up mixing them." So all classical
-work lives in `model_a.py`; this file is the standalone neural module.
+work lives in `model_a.py`; this file is the standalone neural module
 We import only utility functions (sentence splitter, cloze logic, metrics)
 from `model_a.py` -- no neural code leaks back into the classical pipeline.
 
