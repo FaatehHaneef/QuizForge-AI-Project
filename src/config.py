@@ -1,6 +1,6 @@
 """
-Configuration module for QuizForge project
-Centralized paths, constants, and hyperparameters
+Configuration module for QuizForge project.
+Centralized paths, constants, and hyperparameters.
 """
 
 import os

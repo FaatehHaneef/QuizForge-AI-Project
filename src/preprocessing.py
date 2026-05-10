@@ -1,6 +1,6 @@
 """
-Data preprocessing and splitting for RACE dataset
-Loads the single CSV and creates 80/10/10 train/val/test split
+Data preprocessing and splitting for RACE dataset.
+Loads the single CSV and creates 80/10/10 train/val/test split.
 """
 
 import pandas as pd
