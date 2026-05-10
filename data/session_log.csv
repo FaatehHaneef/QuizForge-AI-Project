@@ -1,0 +1,74 @@
+ts,question,correct_answer,picked,correct,latency_ms,hints_used
+2026-05-09T21:44:15,It can be inferred from the passage that   _  .,there are plenty of natural resources in the north of the country,people are leaving for the countryside because of the quietness.,False,0,0
+2026-05-09T21:45:51,What?,Octopuses are among the most intelligent invertebrates on Earth,Octopuses are among the most intelligent invertebrates on Earth,True,7,2
+2026-05-09T21:48:41,What?,Octopuses are among the most intelligent invertebrates on Earth,Octopuses are among the most intelligent invertebrates on Earth,True,5,2
+2026-05-09T21:48:58,What?,"An octopus can solve puzzles, open jars, and
+even recognise individual humans","They typically die
+shortly after reproducing, in a process scientists call senescence",False,4,0
+2026-05-09T22:03:00,"A
+bluish-green mould had contaminated his culture of Who
+bacteria, and around the mould the bacteria had been destroyed?",Staphylococcus,Staphylococcus,True,5,2
+2026-05-09T22:04:08,"It
+took more than a decade for two Oxford scientists, Howard Florey and
+Ernst Who, to develop a method to produce it in large quantities?",Chain,Allied,False,7,0
+2026-05-09T22:19:16,"By
+1944, penicillin was being mass-produced for Allied troops during
+What and is credited with saving countless lives?",World War II,World War II,True,8,2
+2026-05-10T18:34:53,"Fleming,
+Florey, and Chain shared the What in Medicine in 1945 for their
+work?",Nobel Prize,Nobel Prize,True,13,2
+2026-05-10T18:36:28,"Fleming,
+Florey, and Chain shared the What in Medicine in 1945 for their
+work?",Nobel Prize,Medicine,False,6,0
+2026-05-10T19:08:33,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Lisa Gherardini,True,5,2
+2026-05-10T19:08:49,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Da Vinci,False,19,0
+2026-05-10T19:09:07,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Lisa Gherardini,True,4,0
+2026-05-10T19:10:31,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Lisa Gherardini,True,7,0
+2026-05-10T19:10:57,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Vincenzo Peruggia,False,6,0
+2026-05-10T19:11:18,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Lisa Gherardini,True,11,0
+2026-05-10T19:18:39,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Mona Lisa,False,6,0
+2026-05-10T19:18:59,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Da Vinci,True,5,2
+2026-05-10T19:23:28,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Lisa Gherardini,True,5,2
+2026-05-10T19:24:31,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Vincenzo Peruggia,False,6,0
+2026-05-10T19:27:57,The teacher  _  .,invited the parents to come and see what the pupils had made,asked her pupils to bring something they had made that Saturday afternoon,False,0,2
+2026-05-10T19:28:32,What?,"""said the teacher","""said the teacher",True,13,2
+2026-05-10T19:39:16,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Lisa Gherardini,False,14,0
+2026-05-10T19:39:30,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Da Vinci,True,14,2
+2026-05-10T19:43:14,Very old people can remember something happened  _  .,about seventy years ago,about seventy years ago,True,0,2
+2026-05-10T19:49:45,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Vincenzo Peruggia,False,6,0
+2026-05-10T19:50:07,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Lisa Gherardini,False,6,2
+2026-05-10T19:50:16,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Da Vinci,True,6,2
+2026-05-10T19:55:05,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Da Vinci,False,7,0
+2026-05-10T19:55:19,"Art historians believe the woman in
+the painting is What, the wife of a wealthy Florentine
+merchant?",Lisa Gherardini,Lisa Gherardini,True,7,2
+2026-05-10T19:59:06,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Da Vinci,True,7,2
+2026-05-10T21:10:56,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Lisa Gherardini,False,8,2
+2026-05-10T21:11:27,"The Mona Lisa, painted by Leonardo What between 1503 and 1519, is
+widely considered the most famous painting in the world?",Da Vinci,Da Vinci,True,8,2

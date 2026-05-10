@@ -104,7 +104,7 @@ class OneHotEncoder:
         self.vocab_list = vocab_words
         self.vocab = {word: idx for idx, word in enumerate(vocab_words)}
         
-        print(f"✓ Vocabulary built: {len(self.vocab)} words")
+        print(f"-> Vocabulary built: {len(self.vocab)} words")
     
     def encode(self, text: str) -> np.ndarray:
         """
@@ -195,7 +195,7 @@ class FeatureEngineer:
             answer_letter = df.iloc[idx]['answer']
             labels[idx] = ord(answer_letter) - ord('A')
         
-        print(f"✓ Features created: passages={passages.shape}, questions={questions.shape}, "
+        print(f"-> Features created: passages={passages.shape}, questions={questions.shape}, "
               f"options={options.shape}")
         
         return {
@@ -219,7 +219,7 @@ class FeatureEngineer:
             options=features['options'],
             labels=features['labels']
         )
-        print(f"✓ Saved features to {output_path_npz}")
+        print(f"-> Saved features to {output_path_npz}")
     
     def load_features(self, path: str) -> Dict:
         """Load features from compressed numpy file"""
@@ -231,7 +231,7 @@ class FeatureEngineer:
             'options': data['options'],
             'labels': data['labels']
         }
-        print(f"✓ Loaded features from {path_npz}")
+        print(f"-> Loaded features from {path_npz}")
         return features
     
     def save_encoder(self, output_path: str) -> None:
@@ -239,13 +239,13 @@ class FeatureEngineer:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'wb') as f:
             pickle.dump(self.encoder, f)
-        print(f"✓ Saved encoder to {output_path}")
+        print(f"-> Saved encoder to {output_path}")
     
     def load_encoder(self, path: str) -> None:
         """Load encoder from pickle file"""
         with open(path, 'rb') as f:
             self.encoder = pickle.load(f)
-        print(f"✓ Loaded encoder from {path}")
+        print(f" -> Loaded encoder from {path}")
 
 
 def main():

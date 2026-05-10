@@ -106,4 +106,4 @@ if __name__ == "__main__":
         output_dir=output_directory
     )
     
-    print("\n✓ Data preprocessing complete!")
+    print("\n-> Data preprocessing complete!")
