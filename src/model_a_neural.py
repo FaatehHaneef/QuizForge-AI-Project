@@ -1,20 +1,20 @@
 """
-Model A — Neural Approach (sentence-transformers based)
+Model A -- Neural Approach (sentence-transformers based)
 ========================================================
 
 Spec mapping
 ------------
-§4.2.2 lists "fine-tune bert-base-uncased on RACE train split for 3–5 epochs"
+Sec.4.2.2 lists "fine-tune bert-base-uncased on RACE train split for 3-5 epochs"
 as one of the unsupervised/semi-supervised options. Fine-tuning bert-base on
 CPU is impractical (~hours per epoch), so we use sentence-transformers
-`all-MiniLM-L6-v2` instead — a distilled, already-fine-tuned BERT variant
+`all-MiniLM-L6-v2` instead -- a distilled, already-fine-tuned BERT variant
 that is:
   - 80 MB on disk (vs 440 MB for bert-base-uncased)
   - 384-dim sentence embeddings (vs 768)
   - CPU-feasible (~1000 sentences/sec on a modern laptop)
 
-`sentence-transformers` is explicitly listed in spec §7.1 ("Embeddings —
-sentence-transformers — Semantic similarity for hint ranking") as part of
+`sentence-transformers` is explicitly listed in spec Sec.7.1 ("Embeddings --
+sentence-transformers -- Semantic similarity for hint ranking") as part of
 the recommended stack. We use it for two Model-A neural sub-tasks AND
 expose `rank_sentences_by_relevance` so Model B can later reuse it for
 hint extraction.
@@ -25,12 +25,12 @@ The user's directive: "keep our implementations separate from the neural
 ones for comparison, don't wanna end up mixing them." So all classical
 work lives in `model_a.py`; this file is the standalone neural module.
 We import only utility functions (sentence splitter, cloze logic, metrics)
-from `model_a.py` — no neural code leaks back into the classical pipeline.
+from `model_a.py` -- no neural code leaks back into the classical pipeline.
 
 What this module produces
 -------------------------
-1. Neural Verification: per-option semantic features (passage↔option,
-   question↔option, (passage+question)↔option cosines + comparatives) →
+1. Neural Verification: per-option semantic features (passage<->option,
+   question<->option, (passage+question)<->option cosines + comparatives) ->
    small Logistic Regression head. Compared against the classical
    Stacking ensemble.
 
@@ -77,7 +77,7 @@ from config import (
     DATA_DIR,
 )
 
-# Reuse classical utilities — these contain no neural code.
+# Reuse classical utilities -- these contain no neural code.
 from model_a import (
     split_sentences,
     cloze_question,
@@ -87,7 +87,7 @@ from model_a import (
 )
 
 
-# ─── Constants ───────────────────────────────────────────────────────────────
+# --- Constants ---------------------------------------------------------------
 EMBED_MODEL_NAME   = "sentence-transformers/all-MiniLM-L6-v2"
 EMBED_BATCH_SIZE   = 64
 EMBEDDINGS_DIR     = os.path.join(DATA_DIR, "embeddings")
@@ -96,12 +96,12 @@ EPS                = 1e-9
 TRAIN_SUBSET       = 30_000   # subsample train to keep CPU runtime tractable
 
 
-# ─── Model loader + caching helpers ───────────────────────────────────────────
+# --- Model loader + caching helpers -------------------------------------------
 def load_neural_model():
     """Load sentence-transformers model on CPU."""
     print(f"\n[NEURAL] Loading {EMBED_MODEL_NAME} (CPU)...")
     model = SentenceTransformer(EMBED_MODEL_NAME, device='cpu')
-    print(f"  ✓ Loaded — embedding dim = {model.get_sentence_embedding_dimension()}")
+    print(f"  -> Loaded -- embedding dim = {model.get_sentence_embedding_dimension()}")
     return model
 
 
@@ -145,10 +145,10 @@ def encode_split_columns(model, df, split_name,
     return embs
 
 
-# ─── Reusable utility — Model B will import this ────────────────────────────
+# --- Reusable utility -- Model B will import this ----------------------------
 def rank_sentences_by_relevance(passage, query, model, top_k=None):
     """
-    Public API for Model B's hint extractor (spec §5.3.2 — extractive
+    Public API for Model B's hint extractor (spec Sec.5.3.2 -- extractive
     sentence ranking by question relevance using sentence embeddings).
 
     Returns sentences ordered by cosine similarity to `query` (descending).
@@ -161,14 +161,14 @@ def rank_sentences_by_relevance(passage, query, model, top_k=None):
                               convert_to_numpy=True, normalize_embeddings=True)
     query_emb = model.encode([query], batch_size=1, show_progress_bar=False,
                               convert_to_numpy=True, normalize_embeddings=True)[0]
-    sims = sent_embs @ query_emb  # already normalised → exact cosine
+    sims = sent_embs @ query_emb  # already normalised -> exact cosine
     order = np.argsort(-sims)
     if top_k:
         order = order[:top_k]
     return [(sentences[i], float(sims[i])) for i in order]
 
 
-# ─── Neural Verification: features + LR head ─────────────────────────────────
+# --- Neural Verification: features + LR head ---------------------------------
 def cos_batch(A, B):
     """Pairwise cosine for matched rows in A and B (both shape (N, D))."""
     a_n = A / (np.linalg.norm(A, axis=1, keepdims=True) + EPS)
@@ -181,10 +181,10 @@ def build_neural_features(embs):
     Per-option semantic features from sentence-transformer embeddings.
 
     Returns shape (N, 4, 9) per option:
-      [p_cos, q_cos, pq_cos,                  ← absolute cosines
-       p_diff_max,  p_argmax,                 ← passage rank features
-       q_diff_max,  q_argmax,                 ← question rank features
-       pq_diff_max, pq_argmax]                ← combined rank features
+      [p_cos, q_cos, pq_cos,                  <- absolute cosines
+       p_diff_max,  p_argmax,                 <- passage rank features
+       q_diff_max,  q_argmax,                 <- question rank features
+       pq_diff_max, pq_argmax]                <- combined rank features
     """
     p_e  = embs['article']
     q_e  = embs['question']
@@ -230,7 +230,7 @@ def train_and_eval_neural_verification(train_X, train_y, val_X, val_y,
     val_flat   = scaler.transform(val_X.reshape(-1, F))
     test_flat  = scaler.transform(test_X.reshape(-1, F))
 
-    print(f"[NEURAL-VERIF] Training LR head on {len(train_flat):,} option-examples × {F} features...")
+    print(f"[NEURAL-VERIF] Training LR head on {len(train_flat):,} option-examples x {F} features...")
     model = LogisticRegression(C=1.0, max_iter=300, n_jobs=-1, random_state=42)
     model.fit(train_flat, train_y_bin)
 
@@ -260,7 +260,7 @@ def train_and_eval_neural_verification(train_X, train_y, val_X, val_y,
     }
 
 
-# ─── Neural Generation re-ranker ─────────────────────────────────────────────
+# --- Neural Generation re-ranker ---------------------------------------------
 def evaluate_neural_generation(df, st_model, label):
     """
     For each row: split passage into sentences, encode all sentences in
@@ -333,14 +333,14 @@ def evaluate_neural_generation(df, st_model, label):
     return avg, n
 
 
-# ─── Final summary ───────────────────────────────────────────────────────────
+# --- Final summary -----------------------------------------------------------
 def _fmt_pct(x):
     return f"{x * 100:>7.2f}%"
 
 
 def print_neural_classical_comparison(verif, val_gen, test_gen):
     """Side-by-side neural vs classical (numbers from last classical run)."""
-    # Classical numbers from latest model_a.py run — kept here as constants
+    # Classical numbers from latest model_a.py run -- kept here as constants
     # so this file is standalone and doesn't need to re-run model_a.py.
     CLASSICAL = {
         'verif_val_em':    0.3918,   # Stacking val EM
@@ -356,7 +356,7 @@ def print_neural_classical_comparison(verif, val_gen, test_gen):
     }
 
     print("\n" + "=" * 92)
-    print("NEURAL  vs  CLASSICAL  —  Model A side-by-side")
+    print("NEURAL  vs  CLASSICAL  --  Model A side-by-side")
     print("=" * 92)
     print()
     print("VERIFICATION (per-question Exact Match)")
@@ -364,7 +364,7 @@ def print_neural_classical_comparison(verif, val_gen, test_gen):
     print(f"{'Approach':<40}    {'Val-EM':>10}    {'Test-EM':>10}")
     print(f"{'Classical Stacking (LR+SVM+RF)':<40}    "
           f"{_fmt_pct(CLASSICAL['verif_val_em'])}    {_fmt_pct(CLASSICAL['verif_test_em'])}")
-    print(f"{'Neural (MiniLM cosines → LR head)':<40}    "
+    print(f"{'Neural (MiniLM cosines -> LR head)':<40}    "
           f"{_fmt_pct(verif['val_em'])}    {_fmt_pct(verif['test_em'])}")
     print()
     print("GENERATION (BLEU-1 / ROUGE-1 / METEOR)")
@@ -386,20 +386,20 @@ def print_neural_classical_comparison(verif, val_gen, test_gen):
     print("=" * 92 + "\n")
 
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+# --- Main --------------------------------------------------------------------
 def main():
     print("\n" + "#" * 70)
-    print("# Model A — Neural Approach (sentence-transformers)")
+    print("# Model A -- Neural Approach (sentence-transformers)")
     print("# Separate from model_a.py classical pipeline for fair comparison")
     print("#" * 70)
 
     if not _ST_AVAILABLE:
         print("\n[ERR] sentence-transformers not installed.")
         print("      Install with: pip install sentence-transformers")
-        print("      (also installs torch + transformers — sizeable download)")
+        print("      (also installs torch + transformers -- sizeable download)")
         return
 
-    # ─── Load splits ─────────────────────────────────────────────────────
+    # --- Load splits -----------------------------------------------------
     print("\n[DATA] Loading CSVs...")
     train_df = pd.read_csv(TRAIN_CSV_PATH).head(TRAIN_SUBSET)
     val_df   = pd.read_csv(VAL_CSV_PATH)
@@ -408,7 +408,7 @@ def main():
     print(f"  Val:   {len(val_df):,}")
     print(f"  Test:  {len(test_df):,}")
 
-    # ─── Load neural model + encode (cached) ─────────────────────────────
+    # --- Load neural model + encode (cached) -----------------------------
     st_model = load_neural_model()
 
     print("\n[NEURAL] Encoding texts for verification (cached on disk)...")
@@ -416,7 +416,7 @@ def main():
     val_embs   = encode_split_columns(st_model, val_df,   'val')
     test_embs  = encode_split_columns(st_model, test_df,  'test')
 
-    # ─── Build features for verification ──────────────────────────────────
+    # --- Build features for verification ----------------------------------
     print("\n[NEURAL] Building per-option semantic features...")
     train_X = build_neural_features(train_embs)
     val_X   = build_neural_features(val_embs)
@@ -427,9 +427,9 @@ def main():
     val_y   = val_df['answer'].map(ANSWER_MAP).values.astype(np.int32)
     test_y  = test_df['answer'].map(ANSWER_MAP).values.astype(np.int32)
 
-    # ─── Neural verification ─────────────────────────────────────────────
+    # --- Neural verification ---------------------------------------------
     print("\n" + "=" * 70)
-    print("Neural Verification — sentence-transformer features → LR head")
+    print("Neural Verification -- sentence-transformer features -> LR head")
     print("=" * 70)
     verif = train_and_eval_neural_verification(
         train_X, train_y, val_X, val_y, test_X, test_y
@@ -439,11 +439,11 @@ def main():
     os.makedirs(MODELS_DIR, exist_ok=True)
     joblib.dump({'model': verif['model'], 'scaler': verif['scaler']},
                 MODEL_NEURAL_PATH)
-    print("  ✓ Saved")
+    print("  -> Saved")
 
-    # ─── Neural generation re-ranker ─────────────────────────────────────
+    # --- Neural generation re-ranker -------------------------------------
     print("\n" + "=" * 70)
-    print("Neural Generation — sentence-transformer ranker (cloze on top)")
+    print("Neural Generation -- sentence-transformer ranker (cloze on top)")
     print("=" * 70)
     val_gen,  _ = evaluate_neural_generation(val_df,  st_model, "VAL")
     test_gen, _ = evaluate_neural_generation(test_df, st_model, "TEST")
@@ -455,7 +455,7 @@ def main():
           f"BLEU-1-c={test_gen['bleu_1_corpus']:.4f}  "
           f"ROUGE-1={test_gen['rouge1']:.4f}  METEOR={test_gen['meteor']:.4f}")
 
-    # ─── Side-by-side with classical ─────────────────────────────────────
+    # --- Side-by-side with classical -------------------------------------
     print_neural_classical_comparison(verif, val_gen, test_gen)
 
 

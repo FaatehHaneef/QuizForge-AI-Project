@@ -1,16 +1,16 @@
 """
-Model B — Distractor & Hint Generator (spec §5)
+Model B -- Distractor & Hint Generator (spec Sec.5)
 ================================================
 
 Two sub-tasks, both purely classical (no neural required):
 
-  1. Distractor Generation (§5.3.1, §5.4)
+  1. Distractor Generation (Sec.5.3.1, Sec.5.4)
        Input  : (passage, question, correct_answer)
        Output : 3 plausible distractors (semantically related but factually wrong)
        Pipeline:
          a) Extract candidate phrases from passage (rule based, no NLP tools)
          b) For each candidate compute features:
-              cosine to correct answer (TF·IDF and GloVe), character bigram
+              cosine to correct answer (TF.IDF and GloVe), character bigram
               overlap, passage frequency, length statistics, word overlap
          c) Train Logistic Regression and Random Forest rankers on
               (candidate, is_distractor) labels mined from the dataset's
@@ -18,22 +18,22 @@ Two sub-tasks, both purely classical (no neural required):
          d) At inference: score all candidates, exclude the correct answer,
               apply a Jaccard diversity penalty, pick top three
 
-  2. Hint Extraction (§5.3.2)
+  2. Hint Extraction (Sec.5.3.2)
        Input  : (passage, question, correct_answer)
        Output : top K passage sentences ordered from general to near explicit
        Two variants:
-         a) TF·IDF cosine ranking — score each sentence by similarity to the
+         a) TF.IDF cosine ranking -- score each sentence by similarity to the
               question, surface the top K
-         b) ML scored ranking — train a Logistic Regression on sentence
+         b) ML scored ranking -- train a Logistic Regression on sentence
               features (cosine to question, cosine to answer, position,
               length, GloVe cosine) using the most overlapping sentence as
               the "gold key sentence" label
 
 Performance
 -----------
-All TF·IDF transforms and GloVe lookups are batched per row (one call per
+All TF.IDF transforms and GloVe lookups are batched per row (one call per
 row covering all candidates / all sentences) rather than per individual
-candidate. This typically buys a 5–10× speedup over the single-text
+candidate. This typically buys a 5-10x speedup over the single-text
 transform pattern, bringing the full pipeline runtime under 10 minutes
 on a modern laptop CPU.
 
@@ -44,7 +44,7 @@ Reuses infrastructure from Model A (no neural code leaks):
   - TFIDF_VEC_PATH (the vectorizer fitted by model_a.py is reloaded here)
 
 Usage: python src/model_b.py
-       (run model_a.py once first so the TF·IDF vectorizer is on disk)
+       (run model_a.py once first so the TF.IDF vectorizer is on disk)
 """
 
 import sys
@@ -91,7 +91,7 @@ from model_a import (
 )
 
 
-# ─── Constants ───────────────────────────────────────────────────────────────
+# --- Constants ---------------------------------------------------------------
 MODEL_B_DIST_LR_PATH = os.path.join(MODELS_DIR, "model_b_distractor_lr.pkl")
 MODEL_B_DIST_RF_PATH = os.path.join(MODELS_DIR, "model_b_distractor_rf.pkl")
 MODEL_B_DIST_HGB_PATH = os.path.join(MODELS_DIR, "model_b_distractor_hgb.pkl")
@@ -114,10 +114,10 @@ TOK_RE                    = re.compile(r'\b[a-zA-Z]+\b')
 _MATCH_ROUGE = rouge_scorer.RougeScorer(['rouge1'], use_stemmer=True)
 
 
-# ─── B1: Distractor candidate extraction ─────────────────────────────────────
+# --- B1: Distractor candidate extraction -------------------------------------
 def extract_candidate_phrases(passage, max_candidates=MAX_CANDIDATES):
     """
-    Spec §5.3.1 Step 1 — extract candidate phrases from the passage using
+    Spec Sec.5.3.1 Step 1 -- extract candidate phrases from the passage using
     simple string matching and frequency based selection. No NLP tools.
     """
     sentences = split_sentences(passage)
@@ -158,11 +158,11 @@ def extract_candidate_phrases(passage, max_candidates=MAX_CANDIDATES):
     return out[:max_candidates]
 
 
-# ─── Batched feature primitives ──────────────────────────────────────────────
+# --- Batched feature primitives ----------------------------------------------
 def _batch_tfidf_cosine(texts, target_text, vec):
     """
     Returns (n,) cosine similarities of `texts` vs `target_text`.
-    One vec.transform on the whole list, one on the target — far faster
+    One vec.transform on the whole list, one on the target -- far faster
     than calling vec.transform per text.
     """
     if not texts:
@@ -192,14 +192,14 @@ def _char_bigrams(s):
     return set(s[i:i + 2] for i in range(len(s) - 1)) if len(s) >= 2 else set()
 
 
-# ─── B2: Distractor features (batched per row) ───────────────────────────────
+# --- B2: Distractor features (batched per row) -------------------------------
 def batch_distractor_features(candidates, correct_answer, passage,
                               vec, glove=None, idf_lookup=None):
     """
     Vectorised feature builder for a list of distractor candidates.
 
     Returns (n_candidates, 7) feature matrix:
-      0  cos_tfidf      : TF·IDF cosine similarity to correct answer
+      0  cos_tfidf      : TF.IDF cosine similarity to correct answer
       1  char_match     : Jaccard on character bigrams
       2  passage_freq   : occurrences of candidate in passage / passage length
       3  length_diff    : abs token length difference vs correct answer
@@ -211,10 +211,10 @@ def batch_distractor_features(candidates, correct_answer, passage,
     if n == 0:
         return np.zeros((0, 7), dtype=np.float32)
 
-    # 1) TF·IDF cosine — single batched transform
+    # 1) TF.IDF cosine -- single batched transform
     cos_tfidf = _batch_tfidf_cosine(candidates, correct_answer, vec)
 
-    # 2) Char bigram Jaccard — bg_a computed once
+    # 2) Char bigram Jaccard -- bg_a computed once
     bg_a = _char_bigrams(correct_answer.lower())
     char_match = np.zeros(n, dtype=np.float32)
     for i, c in enumerate(candidates):
@@ -222,7 +222,7 @@ def batch_distractor_features(candidates, correct_answer, passage,
         if bg_c or bg_a:
             char_match[i] = len(bg_c & bg_a) / max(1, len(bg_c | bg_a))
 
-    # 3) Passage frequency — psg_lower computed once
+    # 3) Passage frequency -- psg_lower computed once
     psg_lower = passage.lower()
     n_psg_words = max(1, len(psg_lower.split()))
     psg_freq = np.array(
@@ -236,10 +236,10 @@ def batch_distractor_features(candidates, correct_answer, passage,
     length_diff  = np.abs(lcs - la).astype(np.float32)
     length_ratio = (lcs / la).astype(np.float32)
 
-    # 6) GloVe cosine — single batched lookup + cosines
+    # 6) GloVe cosine -- single batched lookup + cosines
     cos_glove = _batch_glove_cosine(candidates, correct_answer, glove, idf_lookup)
 
-    # 7) Word overlap — aw computed once
+    # 7) Word overlap -- aw computed once
     aw = set(TOK_RE.findall(correct_answer.lower()))
     word_overlap = np.zeros(n, dtype=np.float32)
     if aw:
@@ -254,13 +254,13 @@ def batch_distractor_features(candidates, correct_answer, passage,
     ], axis=1).astype(np.float32)
 
 
-# ─── B2: Build distractor training data ─────────────────────────────────────
+# --- B2: Build distractor training data -------------------------------------
 def build_distractor_train_data(df, vec, glove, idf_lookup,
                                  max_rows=TRAIN_SAMPLE_SIZE):
     """
     Per row, compute features for all distractor + negative candidates in
     one batch, then accumulate into the global X / y. The per-row batching
-    is the key speedup: ~5× faster than per-candidate vec.transform calls.
+    is the key speedup: ~5x faster than per-candidate vec.transform calls.
     """
     X_chunks, y_chunks = [], []
     rng = np.random.default_rng(42)
@@ -313,7 +313,7 @@ def build_distractor_train_data(df, vec, glove, idf_lookup,
 def train_distractor_rankers(train_df, vec, glove, idf_lookup):
     """Train Logistic Regression and Random Forest distractor rankers."""
     print("\n[B2-RANKER] Building distractor training data "
-          f"(up to {TRAIN_SAMPLE_SIZE:,} rows, batched per-row TF·IDF + GloVe)...")
+          f"(up to {TRAIN_SAMPLE_SIZE:,} rows, batched per-row TF.IDF + GloVe)...")
     X, y = build_distractor_train_data(train_df, vec, glove, idf_lookup)
     n_pos, n_neg = int(y.sum()), len(y) - int(y.sum())
     print(f"  Examples: {len(X):,}  ({n_pos:,} distractors, {n_neg:,} non-distractors)")
@@ -365,7 +365,7 @@ def generate_distractors(passage, correct_answer, ranker,
         return []
 
     # Length-ratio filter: keep only candidates whose token length is in
-    # [0.4×, 2.5×] of the answer. Falls back to unfiltered set if nothing
+    # [0.4x, 2.5x] of the answer. Falls back to unfiltered set if nothing
     # passes (so we never return empty when there are usable candidates).
     la = max(1, len(correct_answer.split()))
     filtered = [
@@ -396,7 +396,7 @@ def generate_distractors(passage, correct_answer, ranker,
     return selected
 
 
-# ─── B3b: Frequency-Based Substitution distractor alternative (spec §5.4) ──
+# --- B3b: Frequency-Based Substitution distractor alternative (spec Sec.5.4) --
 _STOP = {
     'the', 'a', 'an', 'and', 'or', 'but', 'of', 'in', 'on', 'at', 'to',
     'for', 'with', 'by', 'from', 'as', 'is', 'are', 'was', 'were', 'be',
@@ -409,7 +409,7 @@ _STOP = {
 
 def generate_distractors_freq(correct_answer, passage, top_k=3):
     """
-    Spec §5.4 — Frequency-Based Substitution.
+    Spec Sec.5.4 -- Frequency-Based Substitution.
     Identify high-frequency content words in the passage and propose
     them as distractors when the correct answer is short (single noun
     phrase / single content word). For multi-word answers we substitute
@@ -448,7 +448,7 @@ def generate_distractors_freq(correct_answer, passage, top_k=3):
     return out
 
 
-# ─── B3: GloVe nearest neighbour distractor alternative (spec §5.4) ────────
+# --- B3: GloVe nearest neighbour distractor alternative (spec Sec.5.4) --------
 def generate_distractors_glove(correct_answer, glove, passage="", top_k=3):
     """Pre-trained GloVe nearest neighbours of the correct answer's content words."""
     if glove is None:
@@ -474,11 +474,11 @@ def generate_distractors_glove(correct_answer, glove, passage="", top_k=3):
     return out
 
 
-# ─── B4: Hint extraction — TF·IDF cosine ranking ────────────────────────────
+# --- B4: Hint extraction -- TF.IDF cosine ranking ----------------------------
 def extract_hints_tfidf(passage, question, vec, top_k=3):
     """
-    Score each sentence by TF·IDF cosine to question; surface top-K and
-    return them ordered from MOST GENERAL → NEAR EXPLICIT, per spec §5.1
+    Score each sentence by TF.IDF cosine to question; surface top-K and
+    return them ordered from MOST GENERAL -> NEAR EXPLICIT, per spec Sec.5.1
     ("Hint 1: most general clue; Hint 2: more specific; Hint 3: near-explicit").
 
     We pick the K most relevant sentences by score, then reverse so the
@@ -494,18 +494,18 @@ def extract_hints_tfidf(passage, question, vec, top_k=3):
     s_norms   = np.sqrt(np.asarray(sent_vecs.multiply(sent_vecs).sum(axis=1)).ravel()) + EPS
     sims      = np.asarray((sent_vecs @ q_vec.T).todense()).ravel() / (s_norms * q_norm)
     top_idx   = np.argsort(-sims)[:top_k]
-    # Graduated order: gentlest (lowest score) first → near-explicit (highest) last
+    # Graduated order: gentlest (lowest score) first -> near-explicit (highest) last
     graduated = sorted(top_idx, key=lambda i: sims[int(i)])
     return [(sentences[int(i)], float(sims[int(i)])) for i in graduated]
 
 
-# ─── B5: Hint features (batched per row) ─────────────────────────────────────
+# --- B5: Hint features (batched per row) -------------------------------------
 def batch_hint_features(sentences, question, correct_answer,
                         vec, glove=None, idf_lookup=None):
     """
     Returns (n_sentences, 5) feature matrix:
-      0  cos_q      : TF·IDF cosine vs question
-      1  cos_a      : TF·IDF cosine vs correct answer
+      0  cos_q      : TF.IDF cosine vs question
+      1  cos_a      : TF.IDF cosine vs correct answer
       2  position   : normalised sentence index in passage [0, 1]
       3  n_tokens   : sentence length in tokens
       4  cos_q_glv  : GloVe cosine vs question
@@ -590,7 +590,7 @@ def train_hint_ranker(train_df, vec, glove, idf_lookup):
 
 def extract_hints_ml(passage, question, correct_answer, ranker,
                      vec, glove, idf_lookup, top_k=3):
-    """ML-scored hints, returned in graduated order (general → near-explicit)."""
+    """ML-scored hints, returned in graduated order (general -> near-explicit)."""
     sentences = split_sentences(passage)
     if not sentences:
         return []
@@ -605,7 +605,7 @@ def extract_hints_ml(passage, question, correct_answer, ranker,
     return [(sentences[int(i)], float(scores[int(i)])) for i in graduated]
 
 
-# ─── B5b: Regression-based hint scorer (spec §5.5 R² metric) ────────────────
+# --- B5b: Regression-based hint scorer (spec Sec.5.5 R^2 metric) ----------------
 def build_hint_regression_data(df, vec, glove, idf_lookup,
                                max_rows=TRAIN_SAMPLE_SIZE):
     """
@@ -665,8 +665,8 @@ def train_hint_regressor(train_df, vec, glove, idf_lookup):
 def evaluate_hint_regressor(df, regressor, vec, glove, idf_lookup,
                             max_rows=EVAL_SAMPLE_SIZE, label="VAL"):
     """
-    Compute R² between predicted sentence-relevance scores and true relevance
-    labels (fraction of answer tokens covered by sentence). Spec §5.5.
+    Compute R^2 between predicted sentence-relevance scores and true relevance
+    labels (fraction of answer tokens covered by sentence). Spec Sec.5.5.
     """
     X, y = build_hint_regression_data(df, vec, glove, idf_lookup, max_rows=max_rows)
     if len(X) == 0:
@@ -676,12 +676,12 @@ def evaluate_hint_regressor(df, regressor, vec, glove, idf_lookup,
     r2   = float(r2_score(y, y_pred))
     mae  = float(np.mean(np.abs(y - y_pred)))
     rmse = float(np.sqrt(np.mean((y - y_pred) ** 2)))
-    print(f"  [{label}]  R²={r2:.4f}   MAE={mae:.4f}   RMSE={rmse:.4f}   "
+    print(f"  [{label}]  R^2={r2:.4f}   MAE={mae:.4f}   RMSE={rmse:.4f}   "
           f"n={len(X):,}")
     return {'r2': r2, 'mae': mae, 'rmse': rmse, 'n_examples': int(len(X))}
 
 
-# ─── Evaluation ──────────────────────────────────────────────────────────────
+# --- Evaluation --------------------------------------------------------------
 def _derive_gold_key_sentence(passage, correct_answer):
     sentences = split_sentences(passage)
     if not sentences:
@@ -697,7 +697,7 @@ def _derive_gold_key_sentence(passage, correct_answer):
     return sentences[scored[0][0]]
 
 
-# ─── B6: Confusion Matrix scaffolding for human Likert evaluation (§5.5) ───
+# --- B6: Confusion Matrix scaffolding for human Likert evaluation (Sec.5.5) ---
 LIKERT_BUCKETS = ['1-Implausible', '2-Weak', '3-OK', '4-Good', '5-Excellent']
 
 
@@ -727,16 +727,16 @@ def _likert_csv_has_ratings(path):
 
 def write_likert_template(distractor_examples, out_path=LIKERT_TEMPLATE_PATH):
     """
-    Spec §5.5 — Confusion Matrix from human evaluation (1–5 Likert).
+    Spec Sec.5.5 -- Confusion Matrix from human evaluation (1-5 Likert).
     We can't run the human study from code, so we emit a CSV template a
     rater can fill in. Each row pairs a generated distractor with its
-    closest gold distractor; the rater scores each on the 1–5 scale.
+    closest gold distractor; the rater scores each on the 1-5 scale.
 
-    If the file already has rater scores, we skip writing — overwriting
+    If the file already has rater scores, we skip writing -- overwriting
     would wipe the human's work. Delete the file manually to regenerate.
     """
     if _likert_csv_has_ratings(out_path):
-        print(f"  [LIKERT] Existing ratings detected at {out_path} — skipping rewrite "
+        print(f"  [LIKERT] Existing ratings detected at {out_path} -- skipping rewrite "
               "(delete the file to regenerate template).")
         return out_path
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -757,7 +757,7 @@ def write_likert_template(distractor_examples, out_path=LIKERT_TEMPLATE_PATH):
             })
     df = pd.DataFrame(rows)
     df.to_csv(out_path, index=False, encoding='utf-8',
-              quoting=1)  # csv.QUOTE_ALL — every field quoted, no row splitting
+              quoting=1)  # csv.QUOTE_ALL -- every field quoted, no row splitting
     print(f"  [LIKERT] Wrote {len(df)} rater rows to {out_path}")
     return out_path
 
@@ -788,7 +788,7 @@ def likert_confusion_matrix(csv_path=LIKERT_TEMPLATE_PATH):
 
 def print_likert_confusion_matrix(cm_result):
     if cm_result is None:
-        print("\n  [LIKERT] No human ratings yet — Confusion Matrix will be "
+        print("\n  [LIKERT] No human ratings yet -- Confusion Matrix will be "
               f"computable once rater fills {LIKERT_TEMPLATE_PATH}")
         return
     print(f"\n  [LIKERT] Confusion Matrix on {cm_result['n_ratings']} rater rows "
@@ -816,7 +816,7 @@ def evaluate_distractors(df, ranker, vec, glove, idf_lookup,
     n_matched = 0
     n_generated = 0
     n_gold = 0
-    n_top_not_correct = 0   # spec §5.5 — ranker accuracy: top distractor != correct answer
+    n_top_not_correct = 0   # spec Sec.5.5 -- ranker accuracy: top distractor != correct answer
     examples = []
 
     print(f"  [{label}] Scoring distractors on up to {min(max_rows, len(df)):,} rows...")
@@ -944,13 +944,13 @@ def evaluate_hints(df, vec, top_k=3, use_ml=False, hint_ranker=None,
     return avg
 
 
-# ─── Final summary ───────────────────────────────────────────────────────────
+# --- Final summary -----------------------------------------------------------
 def print_summary(distractor_results, hint_results,
                   glove_distractor_examples=None,
                   freq_examples=None,
                   hint_regression=None):
     print("\n" + "=" * 122)
-    print("FINAL COMPARISON  —  Model B  (Distractor + Hint Generation)")
+    print("FINAL COMPARISON  --  Model B  (Distractor + Hint Generation)")
     print("=" * 122)
 
     print("\n  Distractor Generation:")
@@ -984,8 +984,8 @@ def print_summary(distractor_results, hint_results,
                   f"{m['rouge1']:>8.4f} {m['rougeL']:>8.4f} {m['meteor']:>8.4f}")
 
     if hint_regression:
-        print("\n  Hint Regression (spec §5.5 — R² Score):")
-        print(f"  {'Split':<6} {'N':>7}   {'R²':>8} {'MAE':>8} {'RMSE':>8}")
+        print("\n  Hint Regression (spec Sec.5.5 -- R^2 Score):")
+        print(f"  {'Split':<6} {'N':>7}   {'R^2':>8} {'MAE':>8} {'RMSE':>8}")
         print("  " + "-" * 50)
         for split_name in ('val', 'test'):
             m = hint_regression.get(split_name)
@@ -995,7 +995,7 @@ def print_summary(distractor_results, hint_results,
                   f"{m['r2']:>8.4f} {m['mae']:>8.4f} {m['rmse']:>8.4f}")
 
     if glove_distractor_examples:
-        print("\n  GloVe Nearest Neighbour Distractors (spec §5.4 alternative):")
+        print("\n  GloVe Nearest Neighbour Distractors (spec Sec.5.4 alternative):")
         for ex in glove_distractor_examples[:3]:
             print(f"    Correct : {ex['correct']}")
             print(f"    Gold    : {ex['gold']}")
@@ -1003,7 +1003,7 @@ def print_summary(distractor_results, hint_results,
             print()
 
     if freq_examples:
-        print("\n  Frequency-Based Substitution Distractors (spec §5.4 alternative):")
+        print("\n  Frequency-Based Substitution Distractors (spec Sec.5.4 alternative):")
         for ex in freq_examples[:3]:
             print(f"    Correct  : {ex['correct']}")
             print(f"    Gold     : {ex['gold']}")
@@ -1013,10 +1013,10 @@ def print_summary(distractor_results, hint_results,
     print("=" * 122 + "\n")
 
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+# --- Main --------------------------------------------------------------------
 def main():
     print("\n" + "#" * 70)
-    print("# QuizForge — Model B  (Distractor & Hint Generator)")
+    print("# QuizForge -- Model B  (Distractor & Hint Generator)")
     print("#" * 70)
 
     _ensure_nltk_data()
@@ -1027,7 +1027,7 @@ def main():
     test_df  = pd.read_csv(TEST_CSV_PATH)
     print(f"  Train: {len(train_df):,}   Val: {len(val_df):,}   Test: {len(test_df):,}")
 
-    print("\n[SHARED] Loading TF·IDF vectorizer (saved by model_a.py)...")
+    print("\n[SHARED] Loading TF.IDF vectorizer (saved by model_a.py)...")
     if os.path.exists(TFIDF_VEC_PATH):
         vec = joblib.load(TFIDF_VEC_PATH)
         print(f"  Loaded from {TFIDF_VEC_PATH}  (vocab {len(vec.vocabulary_):,})")
@@ -1040,25 +1040,25 @@ def main():
     glove = load_glove()
     idf_lookup = build_idf_lookup(vec)
 
-    # ─── B2: Distractor rankers ──────────────────────────────────────────
+    # --- B2: Distractor rankers ------------------------------------------
     print("\n" + "=" * 70)
-    print("B2  Distractor Ranking — LR + RF on candidate features")
+    print("B2  Distractor Ranking -- LR + RF on candidate features")
     print("=" * 70)
     distractor_rankers = train_distractor_rankers(train_df, vec, glove, idf_lookup)
 
-    # ─── B5: Hint ranker ─────────────────────────────────────────────────
+    # --- B5: Hint ranker -------------------------------------------------
     print("\n" + "=" * 70)
-    print("B5  Hint Ranking — Logistic Regression on sentence features")
+    print("B5  Hint Ranking -- Logistic Regression on sentence features")
     print("=" * 70)
     hint_ranker = train_hint_ranker(train_df, vec, glove, idf_lookup)
 
-    # ─── B5b: Hint regressor (R² metric, spec §5.5) ──────────────────────
+    # --- B5b: Hint regressor (R^2 metric, spec Sec.5.5) ----------------------
     print("\n" + "=" * 70)
-    print("B5b Hint Regression — Linear Regression on continuous relevance (R²)")
+    print("B5b Hint Regression -- Linear Regression on continuous relevance (R^2)")
     print("=" * 70)
     hint_regressor = train_hint_regressor(train_df, vec, glove, idf_lookup)
 
-    # ─── Evaluate distractors on val + test ──────────────────────────────
+    # --- Evaluate distractors on val + test ------------------------------
     print("\n" + "=" * 70)
     print("Evaluating Distractors (val + test)")
     print("=" * 70)
@@ -1083,17 +1083,17 @@ def main():
             print(f"  Gen (LR): {ex['gen_distractors']}")
             print()
 
-    # ─── B6: Likert / Confusion Matrix scaffolding (spec §5.5) ───────────
+    # --- B6: Likert / Confusion Matrix scaffolding (spec Sec.5.5) -----------
     print("\n" + "=" * 70)
-    print("B6  Human-Evaluation Likert Template + Confusion Matrix (spec §5.5)")
+    print("B6  Human-Evaluation Likert Template + Confusion Matrix (spec Sec.5.5)")
     print("=" * 70)
     sample_for_likert = distractor_examples_by_ranker.get('LR', [])
     write_likert_template(sample_for_likert)
     print_likert_confusion_matrix(likert_confusion_matrix())
 
-    # ─── B3b: Frequency-Based Substitution examples (spec §5.4) ─────────
+    # --- B3b: Frequency-Based Substitution examples (spec Sec.5.4) ---------
     print("\n" + "=" * 70)
-    print("B3b Frequency-Based Substitution Distractors (spec §5.4 alternative)")
+    print("B3b Frequency-Based Substitution Distractors (spec Sec.5.4 alternative)")
     print("=" * 70)
     freq_examples = []
     for _, row in val_df.head(50).iterrows():
@@ -1117,9 +1117,9 @@ def main():
         print(f"    FreqSub  : {ex['freq_sub']}")
         print()
 
-    # ─── B3: GloVe nearest neighbour examples ────────────────────────────
+    # --- B3: GloVe nearest neighbour examples ----------------------------
     print("\n" + "=" * 70)
-    print("B3  GloVe Nearest Neighbour Distractors (spec §5.4 alternative)")
+    print("B3  GloVe Nearest Neighbour Distractors (spec Sec.5.4 alternative)")
     print("=" * 70)
     glove_examples = []
     if glove is not None:
@@ -1145,13 +1145,13 @@ def main():
     else:
         print("  GloVe not available, skipping.")
 
-    # ─── Evaluate hints on val + test ────────────────────────────────────
+    # --- Evaluate hints on val + test ------------------------------------
     print("\n" + "=" * 70)
     print("Evaluating Hints (val + test)")
     print("=" * 70)
     hint_results = {}
 
-    print("\n[Hints] Variant: TF·IDF cosine ranking")
+    print("\n[Hints] Variant: TF.IDF cosine ranking")
     v_avg = evaluate_hints(val_df, vec, top_k=3, use_ml=False, label="TF-IDF VAL")
     t_avg = evaluate_hints(test_df, vec, top_k=3, use_ml=False, label="TF-IDF TEST")
     hint_results['TF-IDF'] = {'val': v_avg, 'test': t_avg}
@@ -1167,13 +1167,13 @@ def main():
     print(f"  Val:  P@3={v_avg['precision_at_k']:.4f}  BLEU-1={v_avg['bleu_1']:.4f}  ROUGE-1={v_avg['rouge1']:.4f}")
     print(f"  Test: P@3={t_avg['precision_at_k']:.4f}  BLEU-1={t_avg['bleu_1']:.4f}  ROUGE-1={t_avg['rouge1']:.4f}")
 
-    # ─── B5b: Regression hint scorer R² evaluation ───────────────────────
-    print("\n[Hints] Variant: Regression hint scorer (R² metric, spec §5.5)")
+    # --- B5b: Regression hint scorer R^2 evaluation -----------------------
+    print("\n[Hints] Variant: Regression hint scorer (R^2 metric, spec Sec.5.5)")
     reg_v = evaluate_hint_regressor(val_df, hint_regressor, vec, glove, idf_lookup, label="REG VAL")
     reg_t = evaluate_hint_regressor(test_df, hint_regressor, vec, glove, idf_lookup, label="REG TEST")
 
-    # Sample graduated hints (general → near-explicit) on a few rows
-    print("\n[Hints] Sample graduated hints (TF·IDF, val):")
+    # Sample graduated hints (general -> near-explicit) on a few rows
+    print("\n[Hints] Sample graduated hints (TF.IDF, val):")
     shown = 0
     for _, row in val_df.head(50).iterrows():
         passage  = str(row.get('article', ''))
@@ -1196,7 +1196,7 @@ def main():
         if shown >= 3:
             break
 
-    # ─── Final summary ────────────────────────────────────────────────────
+    # --- Final summary ----------------------------------------------------
     print_summary(distractor_results, hint_results, glove_examples,
                   freq_examples=freq_examples,
                   hint_regression={'val': reg_v, 'test': reg_t})

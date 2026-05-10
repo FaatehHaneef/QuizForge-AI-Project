@@ -38,7 +38,7 @@ def load_features(features_path):
     questions = data['questions']
     options = data['options']  # Shape: (num_samples, 4, 5000) for 4 options
     
-    print(f"✓ Loaded features:")
+    print(f"-> Loaded features:")
     print(f"  - Passages: {passages.shape}")
     print(f"  - Questions: {questions.shape}")
     print(f"  - Options: {options.shape}")
@@ -73,7 +73,7 @@ def load_labels_from_csv(csv_path):
     print(f"Loading labels from {csv_path}...")
     df = pd.read_csv(csv_path)
     labels = df["answer"].map(ANSWER_MAP).values
-    print(f"✓ Loaded {len(labels)} labels")
+    print(f"-> Loaded {len(labels)} labels")
     print(f"  Label distribution: {np.bincount(labels)}")
     return labels
 
@@ -109,7 +109,7 @@ def save_model(model, save_path):
     """
     print(f"Saving model to {save_path}...")
     joblib.dump(model, save_path)
-    print(f"✓ Model saved successfully")
+    print(f"-> Model saved successfully")
 
 
 def load_model(model_path):
@@ -124,7 +124,7 @@ def load_model(model_path):
     """
     print(f"Loading model from {model_path}...")
     model = joblib.load(model_path)
-    print(f"✓ Model loaded successfully")
+    print(f"-> Model loaded successfully")
     return model
 
 
@@ -137,7 +137,7 @@ def load_encoder():
     """
     print(f"Loading encoder from {ENCODER_PATH}...")
     encoder = joblib.load(ENCODER_PATH)
-    print(f"✓ Encoder loaded successfully")
+    print(f"-> Encoder loaded successfully")
     return encoder
 
 
