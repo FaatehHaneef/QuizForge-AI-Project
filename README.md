@@ -11,8 +11,10 @@ for any question. A Streamlit UI ties the whole pipeline together and adds
 nine animated brainrot screens for live demonstration.
 
 ## Authors
-- Faateh Haneef
-- Ibrahim (Ibbo)
+- **Syed Muhammad Faateh Haneef**
+- **Muhammad Ibrahim Malik**
+
+Honorary Mention: Claude
 
 ---
 
@@ -33,27 +35,99 @@ nine animated brainrot screens for live demonstration.
 
 ---
 
-## Final headline numbers
+## Final metrics -- the full table
 
-**Model A -- Verification (Stacking ensemble, the strongest):**
-- Val EM **39.18%** -- macro-F1 **0.3914**
-- Test EM **38.69%** -- macro-F1 **0.3857**
-- Confusion Matrix: see `runs/model_a_run.txt`
+### Model A -- Verification (per-question Exact Match + binary peer-comparable)
 
-**Model A -- Unsupervised (K-Means):**
-- Cluster purity **27.53%** -- silhouette **0.0266**
+| Approach                  | Task          | Val-EM     | Val-F1   | Test-EM   | Test-F1  | BinAcc     | BinF1    |
+|---------------------------|---------------|------------|----------|-----------|----------|------------|----------|
+| Logistic Regression       | Answer Verif. | 36.42%     | 0.3634   | 35.97%    | 0.3588   | **73.06%** | 0.5441   |
+| Linear SVM                | Answer Verif. | 35.53%     | 0.3548   | 34.99%    | 0.3492   | **74.99%** | 0.4286   |
+| Random Forest             | Answer Verif. | **39.32%** | 0.3928   | --        | --       | 71.25%     | 0.5879   |
+| Naive Bayes               | Question Type | **91.65%** | 0.8150   | --        | --       | --         | --       |
+| K-Means Clustering        | Clustering    | 27.53%     | --       | --        | --       | --         | --       |
+| Ensemble -- Soft Voting   | Answer Verif. | 38.03%     | 0.3798   | 37.58%    | 0.3746   | 60.03%     | 0.5575   |
+| Ensemble -- **Stacking**  | Answer Verif. | **39.18%** | 0.3914   | **38.69%**| 0.3857   | **75.59%** | 0.4897   |
+| Neural baseline (MiniLM)  | Answer Verif. | 34.20%     | 0.3414   | 33.81%    | 0.3380   | --         | --       |
 
-**Model A -- Generation (Baseline cloze on test):**
-- BLEU-1 **0.1748** -- corpus BLEU-1 **0.2065** -- ROUGE-1 **0.2117** -- METEOR **0.1578**
+Headline: **Stacking ensemble at 75.59% binary accuracy** is the cleanest peer-comparable
+verification number. Per-question 4-way EM peaks at 39.32% (RF) / 39.18% (Stacking),
+which is the appropriate metric for the spec's argmax-over-options framing.
+Naive Bayes classifies *question types* (detail / inference / main idea / vocabulary / other),
+so its 91.65% accuracy is on a different task and not directly comparable to the verifiers.
 
-**Model B -- Distractor Generation (LR ranker, the strongest):**
-- Val P/R/F1 **0.1479 / 0.1437 / 0.1457**
-- Test P/R/F1 **0.1404 / 0.1364 / 0.1384**
+### Model A -- Unsupervised (K-Means)
 
-**Model B -- Hint Generation:**
-- ML-scored ranker: P@3 **0.7842 / 0.7800** (val/test)
-- TF-IDF baseline: P@3 0.4179 / 0.4008
-- RandomForest hint regressor R^2 **0.4932 / 0.4985**
+| Metric           | Value  | Notes                                         |
+|------------------|--------|-----------------------------------------------|
+| Cluster purity   | 27.53% | Above the 25% random baseline                 |
+| Silhouette score | 0.0266 | Range [-1, 1] -- positive but small (expected for high-dim sparse text) |
+
+### Model A -- Question Generation (Wh-template cloze, BLEU/ROUGE/METEOR)
+
+| Variant              | Split | BLEU-1 | BLEU-1-c | BLEU-4 | BLEU-4-c | ROUGE-1 | ROUGE-L | METEOR |
+|----------------------|-------|--------|----------|--------|----------|---------|---------|--------|
+| **Baseline (overlap)** | VAL   | **0.1766** | **0.2082** | 0.0426 | 0.0419 | **0.2134** | **0.1924** | **0.1588** |
+| Baseline (overlap)   | TEST  | 0.1748 | 0.2065   | 0.0426 | 0.0420   | 0.2117  | 0.1908  | 0.1578 |
+| Ranker -- LR         | VAL   | 0.1697 | 0.1883   | 0.0387 | 0.0314   | 0.2025  | 0.1840  | 0.1419 |
+| Ranker -- LR         | TEST  | 0.1682 | 0.1860   | 0.0391 | 0.0322   | 0.2009  | 0.1832  | 0.1411 |
+| Ranker -- NB         | VAL   | 0.1732 | 0.2042   | 0.0420 | 0.0411   | 0.2099  | 0.1891  | 0.1565 |
+| Ranker -- NB         | TEST  | 0.1706 | 0.2016   | 0.0414 | 0.0405   | 0.2073  | 0.1870  | 0.1541 |
+| Ranker -- SVM        | VAL   | 0.1692 | 0.1839   | 0.0387 | 0.0300   | 0.2013  | 0.1834  | 0.1395 |
+| Ranker -- SVM        | TEST  | 0.1680 | 0.1826   | 0.0389 | 0.0309   | 0.1999  | 0.1828  | 0.1392 |
+
+### Model B -- Distractor Generation
+
+| Ranker | Split | Acc        | Precision  | Recall   | F1       | BLEU-1   | BLEU-1-c | ROUGE-1  | ROUGE-L  | METEOR   |
+|--------|-------|------------|------------|----------|----------|----------|----------|----------|----------|----------|
+| **LR**  | VAL  | **1.0000** | **0.1479** | 0.1437   | **0.1457** | **0.1068** | 0.1522 | 0.1390 | 0.1268 | 0.1012 |
+| LR     | TEST  | 1.0000     | 0.1404     | 0.1364   | 0.1384   | 0.1059   | 0.1530   | 0.1396   | 0.1279   | 0.1006   |
+| RF     | VAL   | 1.0000     | 0.1358     | 0.1320   | 0.1339   | 0.0973   | 0.1468   | 0.1284   | 0.1179   | 0.0907   |
+| RF     | TEST  | 1.0000     | 0.1296     | 0.1260   | 0.1278   | 0.0944   | 0.1469   | 0.1271   | 0.1173   | 0.0876   |
+| HGB    | VAL   | 1.0000     | 0.1302     | 0.1266   | 0.1284   | 0.0939   | 0.1443   | 0.1242   | 0.1143   | 0.0864   |
+| HGB    | TEST  | 1.0000     | 0.1238     | 0.1203   | 0.1220   | 0.0925   | 0.1448   | 0.1239   | 0.1148   | 0.0851   |
+
+`Acc = 1.0000` here is the rubric-defined *distractor ranker accuracy*: the fraction
+of rows where the top-ranked candidate is **not** the correct answer. We filter the
+correct answer out at generation time, so this is 100% by construction (sanity check).
+
+### Model B -- Hint Generation
+
+| Variant               | Split | P@3        | BLEU-1   | BLEU-1-c | ROUGE-1  | ROUGE-L  | METEOR   |
+|-----------------------|-------|------------|----------|----------|----------|----------|----------|
+| TF-IDF cosine         | VAL   | 0.4179     | **0.2303** | **0.2658** | **0.2756** | **0.2409** | **0.2246** |
+| TF-IDF cosine         | TEST  | 0.4008     | 0.2336   | 0.2708   | 0.2762   | 0.2418   | 0.2256   |
+| **ML-scored (LR)**    | VAL   | **0.7842** | 0.1956   | 0.2292   | 0.2417   | 0.1997   | 0.1863   |
+| **ML-scored (LR)**    | TEST  | **0.7800** | 0.2045   | 0.2449   | 0.2507   | 0.2097   | 0.1970   |
+
+Headline: **ML-scored hint ranker delivers Precision@3 of 78%** -- nearly double the
+TF-IDF cosine baseline. This is the strongest single result in Model B.
+
+### Model B -- Regression Hint Scorer (rubric R^2 metric)
+
+| Split | N      | R^2        | MAE    | RMSE   |
+|-------|--------|------------|--------|--------|
+| VAL   | 46,583 | **0.4932** | 0.1058 | 0.1444 |
+| TEST  | 46,331 | **0.4985** | 0.1052 | 0.1438 |
+
+### Model B -- Confusion Matrix from Human Likert Evaluation
+
+Filled rater scores at `models/model_b_distractor_likert_template.csv`.
+Both columns (generated distractors and gold distractors) scored 1-5 by the rater.
+Generated mean ~ **3.0**, gold mean ~ **4.4** -- a coherent gap consistent with
+extractive generation versus author-crafted gold.
+
+### Stacking ensemble Confusion Matrix (Val, rows = true, cols = predicted)
+
+```
+            A       B       C       D
+true=A    749     345     397     463
+true=B    433     864     433     554
+true=C    458     456     938     559
+true=D    365     407     474     892
+```
+
+Diagonal sum = 3,443 / 8,787 = 39.18% (matches reported EM).
 
 ---
 
